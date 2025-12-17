@@ -1,0 +1,239 @@
+"""
+地图渲染系统
+"""
+import pygame
+from typing import Dict, Optional, Tuple, Set
+
+import sys
+import os
+
+# 添加项目根目录到路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+sys.path.insert(0, project_root)
+
+from src.models import HexCoord, Tile, TerrainType, Player
+from ui.hex_renderer import HexRenderer
+from ui.ui_config import COLORS, HEX_RADIUS, OFFSET_X, OFFSET_Y
+
+
+class RenderSystem:
+    """地图渲染系统"""
+    
+    def __init__(self):
+        self.camera_x = 0
+        self.camera_y = 0
+        self.zoom = 1.0
+        self.selected_tile = None
+        self.hovered_tile = None
+        self.selected_unit_id = None  # 添加选中单位ID
+        
+    def set_selected_unit(self, unit_id: str):
+        """设置选中的单位ID"""
+        self.selected_unit_id = unit_id
+    
+    def clear_selected_unit(self):
+        """清除选中的单位"""
+        self.selected_unit_id = None
+        
+    def set_camera(self, x: int, y: int):
+        """设置摄像机位置"""
+        self.camera_x = x
+        self.camera_y = y
+    
+    def move_camera(self, dx: int, dy: int):
+        """移动摄像机"""
+        self.camera_x += dx
+        self.camera_y += dy
+    
+    def set_zoom(self, zoom: float):
+        """设置缩放级别"""
+        self.zoom = max(0.5, min(2.0, zoom))
+    
+    def world_to_screen(self, world_x: int, world_y: int) -> Tuple[int, int]:
+        """世界坐标转屏幕坐标"""
+        screen_x = (world_x - self.camera_x) * self.zoom
+        screen_y = (world_y - self.camera_y) * self.zoom
+        return int(screen_x), int(screen_y)
+    
+    def screen_to_world(self, screen_x: int, screen_y: int) -> Tuple[int, int]:
+        """屏幕坐标转世界坐标"""
+        world_x = screen_x / self.zoom + self.camera_x
+        world_y = screen_y / self.zoom + self.camera_y
+        return int(world_x), int(world_y)
+    
+    def render_map(self, surface: pygame.Surface, tiles: Dict[HexCoord, Tile], 
+                   visible_tiles: Set[HexCoord], explored_tiles: Set[HexCoord],
+                   current_player: Player):
+        """渲染地图"""
+        screen_width = surface.get_width()
+        screen_height = surface.get_height()
+        
+        # 计算需要渲染的地块范围
+        visible_range = self._get_visible_tile_range(screen_width, screen_height)
+        
+        for coord, tile in tiles.items():
+            # 跳过不在屏幕范围内的地块
+            if not self._is_tile_in_range(coord, visible_range):
+                continue
+                
+            world_x, world_y = HexRenderer.hex_to_pixel(coord.q, coord.r)
+            world_x += OFFSET_X
+            world_y += OFFSET_Y
+            screen_x, screen_y = self.world_to_screen(world_x, world_y)
+            
+            # 跳过不在屏幕上的地块
+            if (screen_x < -HEX_RADIUS or screen_x > screen_width + HEX_RADIUS or
+                screen_y < -HEX_RADIUS or screen_y > screen_height + HEX_RADIUS):
+                continue
+            
+            self._render_tile(surface, tile, screen_x, screen_y, 
+                            coord in visible_tiles, coord in explored_tiles)
+    
+    def _render_tile(self, surface: pygame.Surface, tile: Tile, 
+                    screen_x: int, screen_y: int, is_visible: bool, is_explored: bool):
+        """渲染单个地块"""
+        # 确定地块颜色
+        if not is_explored:
+            # 未探索 - 完全黑
+            color = COLORS['BLACK']
+        elif not is_visible:
+            # 已探索但不可见 - 灰色
+            if tile.terrain_type == TerrainType.LAND:
+                color = COLORS['EXPLORED']
+            else:
+                color = COLORS['DARK_GRAY']
+        else:
+            # 当前可见 - 正常颜色
+            if tile.terrain_type == TerrainType.LAND:
+                if tile.owner:
+                    # 有主人的陆地显示玩家颜色
+                    color = self._get_player_color(tile.owner)
+                else:
+                    color = COLORS['LAND']
+            else:
+                color = COLORS['OCEAN']
+        
+        # 特殊状态颜色
+        border_color = None
+        if tile.coord == self.selected_tile:
+            border_color = COLORS['WHITE']
+        elif tile.coord == self.hovered_tile:
+            border_color = COLORS['LIGHT_GRAY']
+        
+        # 绘制六边形
+        radius = int(HEX_RADIUS * self.zoom)
+        HexRenderer.draw_hex(surface, screen_x, screen_y, color, border_color, 
+                           radius, 2 if border_color else 1)
+        
+        # 只在可见时渲染其他元素
+        if is_visible:
+            self._render_tile_contents(surface, tile, screen_x, screen_y, radius)
+    
+    def _render_tile_contents(self, surface: pygame.Surface, tile: Tile,
+                             screen_x: int, screen_y: int, radius: int):
+        """渲染地块内容(城市、单位等)"""
+        # 渲染城市
+        if tile.city:
+            self._render_city(surface, tile.city, screen_x, screen_y, radius)
+        
+        # 渲染单位
+        if tile.units:
+            self._render_units(surface, tile.units, screen_x, screen_y, radius)
+    
+    def _render_city(self, surface: pygame.Surface, city, screen_x: int, screen_y: int, radius: int):
+        """渲染城市"""
+        # 城市用正方形表示
+        city_size = max(8, int(radius * 0.4))
+        city_rect = pygame.Rect(screen_x - city_size//2, screen_y - city_size//2, 
+                               city_size, city_size)
+        
+        # 城市颜色为玩家颜色的深色版本
+        city_color = self._get_player_color(city.owner)
+        city_color = tuple(max(0, c - 50) for c in city_color)
+        
+        pygame.draw.rect(surface, city_color, city_rect)
+        pygame.draw.rect(surface, COLORS['BLACK'], city_rect, 1)
+    def _render_units(self, surface: pygame.Surface, units, screen_x: int, screen_y: int, radius: int):
+        """渲染单位"""
+        if not units:
+            return
+        
+        unit_size = max(6, int(radius * 0.3))
+        
+        # 检查是否有选中的单位
+        has_selected_unit = any(unit.id == self.selected_unit_id for unit in units)
+        
+        # 如果只有一个单位，显示在中心
+        if len(units) == 1:
+            unit = units[0]
+            color = self._get_unit_color(unit)
+            
+            # 绘制单位圆圈
+            pygame.draw.circle(surface, color, (screen_x, screen_y - radius//3), unit_size)
+            
+            # 如果是选中的单位，添加高亮边框
+            if unit.id == self.selected_unit_id:
+                pygame.draw.circle(surface, COLORS['WHITE'], (screen_x, screen_y - radius//3), unit_size + 2, 2)
+            
+            pygame.draw.circle(surface, COLORS['BLACK'], (screen_x, screen_y - radius//3), unit_size, 1)
+        else:
+            # 多个单位显示数量
+            color = self._get_unit_color(units[0])  # 使用第一个单位的颜色
+            pygame.draw.circle(surface, color, (screen_x, screen_y - radius//3), unit_size)
+            
+            # 如果有选中的单位，添加高亮边框
+            if has_selected_unit:
+                pygame.draw.circle(surface, COLORS['WHITE'], (screen_x, screen_y - radius//3), unit_size + 2, 2)
+            
+            pygame.draw.circle(surface, COLORS['BLACK'], (screen_x, screen_y - radius//3), unit_size, 1)
+            
+            # 显示数量文本
+            font = pygame.font.Font(None, 16)
+            text = font.render(str(len(units)), True, COLORS['WHITE'])
+            text_rect = text.get_rect(center=(screen_x, screen_y - radius//3))
+            surface.blit(text, text_rect)
+    
+    def _get_player_color(self, player: Player) -> Tuple[int, int, int]:
+        """获取玩家颜色"""
+        player_colors = [
+            COLORS['PLAYER_1'],
+            COLORS['PLAYER_2'], 
+            COLORS['PLAYER_3'],
+            COLORS['PLAYER_4']
+        ]
+        
+        # 简单的玩家ID到颜色的映射
+        player_index = hash(player.id) % len(player_colors)
+        return player_colors[player_index]
+    
+    def _get_unit_color(self, unit) -> Tuple[int, int, int]:
+        """获取单位颜色"""
+        base_color = self._get_player_color(unit.owner)
+        # 单位颜色稍微亮一些
+        return tuple(min(255, c + 30) for c in base_color)
+    
+    def _get_visible_tile_range(self, screen_width: int, screen_height: int) -> Dict:
+        """计算屏幕可见的地块范围"""
+        # 简化实现：返回一个大致的范围
+        world_left, world_top = self.screen_to_world(0, 0)
+        world_right, world_bottom = self.screen_to_world(screen_width, screen_height)
+        
+        return {
+            'left': world_left - HEX_RADIUS,
+            'right': world_right + HEX_RADIUS,
+            'top': world_top - HEX_RADIUS,
+            'bottom': world_bottom + HEX_RADIUS
+        }
+    
+    def _is_tile_in_range(self, coord: HexCoord, visible_range: Dict) -> bool:
+        """检查地块是否在可见范围内"""
+        world_x, world_y = HexRenderer.hex_to_pixel(coord.q, coord.r)
+        return (visible_range['left'] <= world_x <= visible_range['right'] and
+                visible_range['top'] <= world_y <= visible_range['bottom'])
+    
+    def get_tile_at_screen_pos(self, screen_x: int, screen_y: int) -> Optional[HexCoord]:
+        """获取屏幕位置对应的地块坐标"""
+        world_x, world_y = self.screen_to_world(screen_x, screen_y)
+        q, r = HexRenderer.pixel_to_hex(world_x, world_y)
+        return HexCoord(q, r)

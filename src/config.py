@@ -6,7 +6,7 @@
 # 地图配置
 MAP_CONFIG = {
     "radius": 10,           # 地图半径
-    "ocean_ratio": 0.7,     # 海洋比例
+    "ocean_ratio": 0.3,     # 海洋比例
     "seed": None,           # 随机种子，None为随机
 }
 

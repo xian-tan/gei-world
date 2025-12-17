@@ -58,9 +58,11 @@ class GameEngine:
                 )
                 spawn_tile.units.append(settler)
                 player.units.append(settler)
-        
-        # 初始化回合系统
+          # 初始化回合系统
         self.turn_system.initialize(players)
+        
+        # 初始化视野系统的玩家列表
+        self.vision_system.set_players(players)
         
         # 更新所有玩家视野
         for player in players:
@@ -211,6 +213,10 @@ class GameEngine:
         
         # 更新地块单位
         tile.units = survivors_a + survivors_d
+    
+    def get_current_player(self) -> Optional[Player]:
+        """获取当前行动玩家"""
+        return self.turn_system.get_current_player()
     
     def get_game_state(self) -> GameState:
         """获取当前游戏状态"""

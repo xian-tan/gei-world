@@ -9,7 +9,11 @@ class VisionSystem:
     """视野系统"""
     
     def __init__(self):
-        pass
+        self.all_players = []  # 缓存所有玩家列表
+    
+    def set_players(self, players: List[Player]):
+        """设置玩家列表"""
+        self.all_players = players
     
     def update_player_vision(self, player: Player, map_tiles: dict):
         """更新玩家视野"""
@@ -18,6 +22,10 @@ class VisionSystem:
         # 玩家领土总是可见
         for city in player.cities:
             visible_tiles.update(city.territory_tiles)
+        
+        # 领土视野：每个领土地块提供1格视野
+        territory_vision = self.get_territory_vision(player, map_tiles)
+        visible_tiles.update(territory_vision)
         
         # 单位视野范围内可见
         for unit in player.units:
@@ -34,6 +42,35 @@ class VisionSystem:
             distance = unit.position.distance_to(coord)
             if distance <= unit.vision_range:
                 visible_tiles.add(coord)
+        
+        return visible_tiles
+    
+    def get_territory_vision(self, player: Player, map_tiles: dict) -> Set[HexCoord]:
+        """获取领土视野范围 - 每个领土地块提供1格视野"""
+        visible_tiles = set()
+        
+        # 收集所有玩家拥有的领土地块
+        territory_tiles = set()
+        
+        # 从城市领土中收集
+        for city in player.cities:
+            territory_tiles.update(city.territory_tiles)
+        
+        # 从直接拥有的地块中收集（被士兵占领的地块）
+        for coord, tile in map_tiles.items():
+            if tile.owner == player:
+                territory_tiles.add(coord)
+        
+        # 为每个领土地块提供1格视野
+        for territory_coord in territory_tiles:
+            # 领土地块本身可见
+            visible_tiles.add(territory_coord)
+            
+            # 周围1格范围内可见
+            neighbors = territory_coord.neighbors()
+            for neighbor_coord in neighbors:
+                if neighbor_coord in map_tiles:
+                    visible_tiles.add(neighbor_coord)
         
         return visible_tiles
     
@@ -54,9 +91,23 @@ class VisionSystem:
         # 返回所有在该地块的单位
         return tile.units.copy()
     
-    def get_visible_tiles(self, player: Player) -> Set[HexCoord]:
+    def get_visible_tiles(self, player_or_id) -> Set[HexCoord]:
         """获取玩家所有可见地块"""
-        return player.vision_tiles.copy()
+        if isinstance(player_or_id, str):
+            # 根据player_id找到玩家对象
+            for player in self.all_players:
+                if player.id == player_or_id:
+                    return getattr(player, 'vision_tiles', set()).copy()
+            return set()
+        else:
+            # 直接是Player对象
+            return getattr(player_or_id, 'vision_tiles', set()).copy()
+    
+    def get_explored_tiles(self, player_or_id) -> Set[HexCoord]:
+        """获取玩家已探索的地块(简化实现：假设可见地块即为已探索)"""
+        # 简化实现：假设所有可见地块都是已探索的
+        # 在更复杂的实现中，这里应该维护一个永久的已探索地块集合
+        return self.get_visible_tiles(player_or_id)
     
     def has_line_of_sight(self, start: HexCoord, end: HexCoord, map_tiles: dict) -> bool:
         """检查两点间是否有视线（简单实现）"""

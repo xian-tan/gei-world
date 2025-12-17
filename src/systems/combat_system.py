@@ -95,9 +95,7 @@ class CombatSystem:
         """检查指定位置是否需要战斗"""
         tile = map_tiles.get(position)
         if not tile or not tile.units:
-            return False
-        
-        # 检查是否有不同玩家的单位
+            return False        # 检查是否有不同玩家的单位
         players = set(unit.owner for unit in tile.units)
         return len(players) > 1
     

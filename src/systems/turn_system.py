@@ -7,9 +7,9 @@ from ..models import Player
 
 class TurnSystem:
     """回合系统"""
-    
     def __init__(self):
         self.current_turn = 1
+        self.turn_number = 1  # 添加turn_number属性用于UI显示
         self.current_player_index = 0
         self.players: List[Player] = []
     
@@ -33,10 +33,10 @@ class TurnSystem:
         
         # 切换到下一个玩家
         self.current_player_index = (self.current_player_index + 1) % len(self.players)
-        
-        # 如果回到第一个玩家，增加回合数
+          # 如果回到第一个玩家，增加回合数
         if self.current_player_index == 0:
             self.current_turn += 1
+            self.turn_number += 1  # 同步更新turn_number
             self._start_new_turn(player_system, unit_system, vision_system, map_tiles)
     
     def _start_new_turn(self, player_system, unit_system, vision_system, map_tiles: dict):

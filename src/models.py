@@ -120,6 +120,16 @@ class Player:
             self.units = []
         if self.vision_tiles is None:
             self.vision_tiles = set()
+    
+    def __hash__(self):
+        """使Player对象可哈希，基于ID"""
+        return hash(self.id)
+    
+    def __eq__(self, other):
+        """Player对象相等性比较，基于ID"""
+        if not isinstance(other, Player):
+            return False
+        return self.id == other.id
 
 
 @dataclass
