@@ -14,7 +14,10 @@ sys.path.insert(0, project_root)
 
 from src.models import HexCoord, Tile, TerrainType, Player
 from ui.hex_renderer import HexRenderer
-from ui.ui_config import COLORS, HEX_RADIUS, OFFSET_X, OFFSET_Y, SCREEN_WIDTH, SCREEN_HEIGHT
+from ui.ui_config import (
+    COLORS, HEX_RADIUS, OFFSET_X, OFFSET_Y, SCREEN_WIDTH, SCREEN_HEIGHT,
+    MINIMAP_WIDTH, MINIMAP_HEIGHT, MINIMAP_MARGIN
+)
 
 
 class RenderSystem:
@@ -30,6 +33,7 @@ class RenderSystem:
         self.hovered_tile = None
         self.selected_unit_id = None  # 添加选中单位ID
         self.reachable_tiles: Set[HexCoord] = set()
+        self.minimap_rect: Optional[pygame.Rect] = None
         
     def set_selected_unit(self, unit_id: str):
         """设置选中的单位ID"""
@@ -91,9 +95,7 @@ class RenderSystem:
             if not self._is_tile_in_range(coord, visible_range):
                 continue
                 
-            world_x, world_y = HexRenderer.hex_to_pixel(coord.q, coord.r)
-            world_x += OFFSET_X
-            world_y += OFFSET_Y
+            world_x, world_y = HexRenderer.hex_to_pixel(coord.q, coord.r, OFFSET_X, OFFSET_Y)
             screen_x, screen_y = self.world_to_screen(world_x, world_y)
             
             # 跳过不在屏幕上的地块
@@ -160,17 +162,23 @@ class RenderSystem:
     
     def _render_city(self, surface: pygame.Surface, city, screen_x: int, screen_y: int, radius: int):
         """渲染城市"""
-        # 城市用正方形表示
-        city_size = max(8, int(radius * 0.4))
-        city_rect = pygame.Rect(screen_x - city_size//2, screen_y - city_size//2, 
-                               city_size, city_size)
+        # 城市用更大的菱形表示，和单位圆点区分
+        city_size = max(14, int(radius * 0.75))
+        half_size = city_size // 2
+        city_points = [
+            (screen_x, screen_y - half_size),
+            (screen_x + half_size, screen_y),
+            (screen_x, screen_y + half_size),
+            (screen_x - half_size, screen_y),
+        ]
         
         # 城市颜色为玩家颜色的深色版本
         city_color = self._get_player_color(city.owner)
         city_color = tuple(max(0, c - 50) for c in city_color)
         
-        pygame.draw.rect(surface, city_color, city_rect)
-        pygame.draw.rect(surface, COLORS['BLACK'], city_rect, 1)
+        pygame.draw.polygon(surface, city_color, city_points)
+        pygame.draw.polygon(surface, COLORS['WHITE'], city_points, 2)
+        pygame.draw.polygon(surface, COLORS['BLACK'], city_points, 1)
     def _render_units(self, surface: pygame.Surface, units, screen_x: int, screen_y: int, radius: int):
         """渲染单位"""
         if not units:
@@ -230,6 +238,66 @@ class RenderSystem:
         # 单位颜色稍微亮一些
         return tuple(min(255, c + 30) for c in base_color)
     
+    def render_minimap(self, surface: pygame.Surface, tiles: Dict[HexCoord, Tile],
+                       visible_tiles: Set[HexCoord], explored_tiles: Set[HexCoord]):
+        """渲染右下角小地图。"""
+        if not tiles:
+            return
+        
+        minimap_x = surface.get_width() - MINIMAP_WIDTH - MINIMAP_MARGIN
+        minimap_y = surface.get_height() - MINIMAP_HEIGHT - MINIMAP_MARGIN
+        self.minimap_rect = pygame.Rect(minimap_x, minimap_y, MINIMAP_WIDTH, MINIMAP_HEIGHT)
+        pygame.draw.rect(surface, COLORS['MINIMAP_BACKGROUND'], self.minimap_rect)
+        pygame.draw.rect(surface, COLORS['MINIMAP_BORDER'], self.minimap_rect, 2)
+        
+        points = {
+            coord: HexRenderer.hex_to_pixel(coord.q, coord.r, OFFSET_X, OFFSET_Y)
+            for coord in tiles.keys()
+        }
+        min_x = min(point[0] for point in points.values())
+        max_x = max(point[0] for point in points.values())
+        min_y = min(point[1] for point in points.values())
+        max_y = max(point[1] for point in points.values())
+        map_width = max(1, max_x - min_x)
+        map_height = max(1, max_y - min_y)
+        scale = min((MINIMAP_WIDTH - 12) / map_width, (MINIMAP_HEIGHT - 12) / map_height)
+        offset_x = minimap_x + (MINIMAP_WIDTH - map_width * scale) / 2
+        offset_y = minimap_y + (MINIMAP_HEIGHT - map_height * scale) / 2
+        
+        for coord, tile in tiles.items():
+            world_x, world_y = points[coord]
+            mini_x = int(offset_x + (world_x - min_x) * scale)
+            mini_y = int(offset_y + (world_y - min_y) * scale)
+            if coord in visible_tiles:
+                if tile.terrain_type == TerrainType.OCEAN:
+                    color = COLORS['OCEAN']
+                elif tile.owner:
+                    color = self._get_player_color(tile.owner)
+                else:
+                    color = COLORS['LAND']
+            elif coord in explored_tiles:
+                color = COLORS['EXPLORED'] if tile.terrain_type == TerrainType.LAND else COLORS['DARK_GRAY']
+            else:
+                color = COLORS['BLACK']
+            pygame.draw.rect(surface, color, pygame.Rect(mini_x, mini_y, 3, 3))
+        
+        left, top, right, bottom = self._get_visible_world_bounds()
+        view_x = int(offset_x + (left - min_x) * scale)
+        view_y = int(offset_y + (top - min_y) * scale)
+        view_w = max(3, int((right - left) * scale))
+        view_h = max(3, int((bottom - top) * scale))
+        pygame.draw.rect(surface, COLORS['MINIMAP_VIEWPORT'], pygame.Rect(view_x, view_y, view_w, view_h), 1)
+    
+    def _get_visible_world_bounds(self) -> Tuple[float, float, float, float]:
+        """获取当前屏幕对应的世界坐标范围。"""
+        left, top = self.screen_to_world(0, 0)
+        right, bottom = self.screen_to_world(self.screen_width, self.screen_height)
+        return left, top, right, bottom
+    
+    def is_minimap_pos(self, pos: tuple) -> bool:
+        """判断屏幕坐标是否落在小地图内。"""
+        return bool(self.minimap_rect and self.minimap_rect.collidepoint(pos))
+    
     def _get_visible_tile_range(self, screen_width: int, screen_height: int) -> Dict:
         """计算屏幕可见的地块范围"""
         # 简化实现：返回一个大致的范围
@@ -245,12 +313,12 @@ class RenderSystem:
     
     def _is_tile_in_range(self, coord: HexCoord, visible_range: Dict) -> bool:
         """检查地块是否在可见范围内"""
-        world_x, world_y = HexRenderer.hex_to_pixel(coord.q, coord.r)
+        world_x, world_y = HexRenderer.hex_to_pixel(coord.q, coord.r, OFFSET_X, OFFSET_Y)
         return (visible_range['left'] <= world_x <= visible_range['right'] and
                 visible_range['top'] <= world_y <= visible_range['bottom'])
     
     def get_tile_at_screen_pos(self, screen_x: int, screen_y: int) -> Optional[HexCoord]:
         """获取屏幕位置对应的地块坐标"""
         world_x, world_y = self.screen_to_world(screen_x, screen_y)
-        q, r = HexRenderer.pixel_to_hex(world_x, world_y)
+        q, r = HexRenderer.pixel_to_hex(world_x, world_y, OFFSET_X, OFFSET_Y)
         return HexCoord(q, r)

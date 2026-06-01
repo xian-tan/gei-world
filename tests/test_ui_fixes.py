@@ -123,7 +123,7 @@ def test_ui_fixes():
         settler_tile = client.game_engine.map_tiles[settler.position]
         client.ui_system.messages.clear()
         client._handle_normal_click(settler_tile, player)
-        assert any("右键" in message and "建城" in message for message in client.ui_system.messages)
+        assert any("建城" in message and "右键" not in message for message in client.ui_system.messages)
         
         client.game_engine.unit_system.remove_unit(settler, client.game_engine.map_tiles)
         city = client.game_engine.city_system.create_city(player, settler.position, client.game_engine.map_tiles)
@@ -180,17 +180,79 @@ def test_ui_fixes():
         print("\n游戏控制:")
         print("- 按 SPACE 开始游戏")
         print("- 左键点击选择单位或城市")
-        print("- 右键点击选中移民的位置建城")
+        print("- B 或建城按钮: 选中移民后建城")
+        print("- 右键取消选择")
         print("- 选中单位后左键点击其他地块移动")
         print("- WASD 或方向键移动地图")
         print("- 滚轮缩放")
-        print("- ESC 取消选择或退出")
         
     except Exception as e:
         print(f"✗ 测试失败: {e}")
         import traceback
         traceback.print_exc()
         raise
+
+
+def test_selection_cycle_build_city_and_minimap():
+    """测试同格循环选择、B 建城、右键取消、小地图和移动力耗尽取消。"""
+    from ui.client_controller import UIClient
+    from ui.systems.input_system import InputMode
+    from src.models import HexCoord, UnitType, TerrainType
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "AI玩家"], 123)
+    player = client.game_engine.get_current_player()
+    settler = player.units[0]
+    tile = client.game_engine.map_tiles[settler.position]
+    soldier = client.game_engine.unit_system.create_unit(UnitType.SOLDIER, player, tile.coord)
+    client.game_engine.unit_system.units.append(soldier) if soldier not in client.game_engine.unit_system.units else None
+    player.units.append(soldier)
+    tile.units.append(soldier)
+    city = client.game_engine.city_system.create_city(player, tile.coord, client.game_engine.map_tiles)
+    player.cities.append(city)
+    
+    client._handle_normal_click(tile, player)
+    assert client.input_system.get_selected_unit_id() == settler.id
+    client._handle_unit_selected_click(tile, player)
+    assert client.input_system.get_selected_unit_id() == soldier.id
+    client._handle_unit_selected_click(tile, player)
+    assert client.input_system.mode == InputMode.CITY_SELECTED
+    assert client.ui_system.selected_city == city
+    
+    client._handle_tile_right_click((0, 0))
+    assert client.input_system.mode == InputMode.NORMAL
+    assert client.render_system.selected_unit_id is None
+    assert not client.render_system.reachable_tiles
+    
+    for unit in list(player.units):
+        client.game_engine.unit_system.remove_unit(unit, client.game_engine.map_tiles)
+    player.cities.clear()
+    client.game_engine.city_system.cities.clear()
+    tile.city = None
+    fresh_settler = client.game_engine.unit_system.create_unit(UnitType.SETTLER, player, tile.coord)
+    player.units.append(fresh_settler)
+    tile.units.append(fresh_settler)
+    client._select_unit(fresh_settler)
+    client._handle_key_press(pygame.K_b, True)
+    assert len(player.cities) == 1
+    assert client.input_system.mode == InputMode.NORMAL
+    
+    moving_unit = client.game_engine.unit_system.create_unit(UnitType.SETTLER, player, tile.coord)
+    player.units.append(moving_unit)
+    tile.units.append(moving_unit)
+    target = next(coord for coord in tile.coord.neighbors() if coord in client.game_engine.map_tiles)
+    client.game_engine.map_tiles[target].terrain_type = TerrainType.OCEAN
+    client._select_unit(moving_unit)
+    client._handle_unit_selected_click(client.game_engine.map_tiles[target], player)
+    assert moving_unit.movement_points == 0
+    assert client.input_system.mode == InputMode.NORMAL
+    
+    surface = pygame.Surface((800, 600))
+    client.render_system.render_minimap(surface, client.game_engine.map_tiles, player.vision_tiles, player.explored_tiles)
+    assert client.render_system.minimap_rect is not None
+    assert client.render_system.is_minimap_pos(client.render_system.minimap_rect.center)
+
 
 
 def test_start_menu_and_game_over_keys():
@@ -252,4 +314,5 @@ def test_start_menu_and_game_over_keys():
 
 if __name__ == "__main__":
     test_ui_fixes()
+    test_selection_cycle_build_city_and_minimap()
     test_start_menu_and_game_over_keys()

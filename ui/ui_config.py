@@ -27,6 +27,10 @@ COLORS = {
     'BROWN': (139, 69, 19),
     
     # 游戏特定颜色
+    'MAP_BACKGROUND': (22, 28, 38), # 地图外背景
+    'MINIMAP_BACKGROUND': (18, 18, 24),
+    'MINIMAP_BORDER': (220, 220, 220),
+    'MINIMAP_VIEWPORT': (255, 255, 255),
     'OCEAN': (65, 105, 225),      # 海洋蓝
     'LAND': (34, 139, 34),        # 陆地绿
     'LAND_SELECTED': (50, 205, 50), # 选中的陆地
@@ -48,6 +52,9 @@ HEX_HEIGHT = int(HEX_RADIUS * 1.732)  # sqrt(3) * radius
 # UI面板设置
 PANEL_WIDTH = 300
 INFO_PANEL_HEIGHT = 150
+MINIMAP_WIDTH = 220
+MINIMAP_HEIGHT = 160
+MINIMAP_MARGIN = 14
 
 # 字体设置
 FONT_SIZE_SMALL = 12

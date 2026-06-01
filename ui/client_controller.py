@@ -70,7 +70,8 @@ class UIClient:
             on_build_unit=self._handle_build_unit,
             on_end_turn=self._handle_end_turn,
             on_save_game=self._handle_save_game,
-            on_load_game=self._handle_load_game
+            on_load_game=self._handle_load_game,
+            on_build_city=self._handle_build_city
         )
     
     def _clear_ui_selection_state(self):
@@ -167,7 +168,7 @@ class UIClient:
             
             self._notify(f"游戏开始！玩家: {', '.join(player_names)}")
             self._notify("新手提示：左键选中初始移民，黄色边框是可移动范围。")
-            self._notify("移动到合适陆地后，在移民所在格右键建立第一座城市。")
+            self._notify("移动到合适陆地后，按 B 或点击建城按钮建立第一座城市。")
             self._notify("目标：建城、生产士兵，探索并占领对手城市。")
             return True
         return False
@@ -264,7 +265,7 @@ class UIClient:
     def _render(self):
         """渲染游戏画面"""
         # 清屏
-        self.screen.fill(COLORS['BLACK'])
+        self.screen.fill(COLORS['MAP_BACKGROUND'] if self.game_started else COLORS['BLACK'])
         
         if self.game_started:
             # 获取游戏状态
@@ -294,6 +295,12 @@ class UIClient:
             
             # 渲染UI
             self.ui_system.render(self.screen, game_state)
+            self.render_system.render_minimap(
+                self.screen,
+                self.game_engine.map_tiles,
+                visible_tiles,
+                explored_tiles
+            )
         else:
             # 显示开始界面
             self._render_start_screen()
@@ -355,6 +362,8 @@ class UIClient:
         # 先检查UI是否处理了点击
         if self.ui_system.handle_click(screen_pos):
             return
+        if self.render_system.is_minimap_pos(screen_pos):
+            return
         
         coord = self._get_tile_at_screen_pos(screen_pos[0], screen_pos[1])
         if not coord:
@@ -378,37 +387,71 @@ class UIClient:
         self.render_system.selected_tile = coord
     def _handle_normal_click(self, tile, current_player):
         """处理普通模式点击"""
-        # 检查是否点击了自己的单位
-        player_units = [unit for unit in tile.units if unit.owner == current_player]
-        if player_units:
-            unit = player_units[0]  # 选择第一个单位
-            self.input_system.set_mode(InputMode.UNIT_SELECTED, unit.id)
-            self.render_system.set_selected_unit(unit.id)
-            reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
-            self.render_system.set_reachable_tiles(set(reachable_tiles))
-            if unit.unit_type == UnitType.SETTLER:
-                self._notify(f"选中移民：移动力 {unit.movement_points}。左键移动，右键在当前位置建城。")
-            elif unit.unit_type == UnitType.SOLDIER:
-                self._notify(f"选中士兵：移动力 {unit.movement_points}。左键移动/攻击，可占领敌方地块和城市。")
-            else:
-                self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})")
-            if unit.movement_points <= 0:
-                self._notify("该单位本回合移动力已用完，请点击结束回合恢复。")
+        if not self._cycle_selectable_on_tile(tile, current_player):
+            self._clear_ui_selection_state()
+    
+    def _get_selectables_on_tile(self, tile, current_player):
+        """获取当前地块上可循环选择的己方对象。"""
+        selectables = []
+        for unit in tile.units:
+            if unit.owner == current_player:
+                selectables.append(("unit", unit.id, unit))
+        if tile.city and tile.city.owner == current_player:
+            selectables.append(("city", tile.city.id, tile.city))
+        return selectables
+    
+    def _get_current_selection_key(self) -> Optional[tuple]:
+        """获取当前选中对象标识。"""
+        if self.input_system.is_unit_selected():
+            return ("unit", self.input_system.get_selected_unit_id())
+        if self.input_system.is_city_selected():
+            return ("city", self.input_system.get_selected_city_id())
+        return None
+    
+    def _cycle_selectable_on_tile(self, tile, current_player) -> bool:
+        """在同一地块的多个单位/城市之间循环选择。"""
+        selectables = self._get_selectables_on_tile(tile, current_player)
+        if not selectables:
+            return False
         
-        # 检查是否点击了自己的城市
-        elif tile.city and tile.city.owner == current_player:
-            self.input_system.set_mode(InputMode.CITY_SELECTED, tile.city.id)
-            self.ui_system.show_city_panel_for(tile.city)
-            self.render_system.clear_selected_unit()
-            self.render_system.clear_reachable_tiles()
-            self._notify(f"选中城市：当前金币 {current_player.gold}。可在城市面板生产移民或士兵。")
+        current_key = self._get_current_selection_key()
+        selected_index = 0
+        if current_key:
+            keys = [(item_type, item_id) for item_type, item_id, _ in selectables]
+            if current_key in keys:
+                selected_index = (keys.index(current_key) + 1) % len(selectables)
         
+        item_type, _, item = selectables[selected_index]
+        if item_type == "unit":
+            self._select_unit(item)
         else:
-            # 取消选择
-            self.input_system.set_mode(InputMode.NORMAL)
-            self.ui_system._close_city_panel()
-            self.render_system.clear_selected_unit()
-            self.render_system.clear_reachable_tiles()
+            self._select_city(item, current_player)
+        return True
+    
+    def _select_unit(self, unit):
+        """选中单位并刷新移动范围。"""
+        self.input_system.set_mode(InputMode.UNIT_SELECTED, unit.id)
+        self.ui_system._close_city_panel()
+        self.render_system.set_selected_unit(unit.id)
+        reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
+        self.render_system.set_reachable_tiles(set(reachable_tiles))
+        if unit.unit_type == UnitType.SETTLER:
+            self._notify(f"选中移民：移动力 {unit.movement_points}。左键移动，按 B 或点击建城按钮建城。")
+        elif unit.unit_type == UnitType.SOLDIER:
+            self._notify(f"选中士兵：移动力 {unit.movement_points}。左键移动/攻击，可占领敌方地块和城市。")
+        else:
+            self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})")
+        if unit.movement_points <= 0:
+            self._notify("该单位本回合移动力已用完，请点击结束回合恢复。")
+    
+    def _select_city(self, city, current_player):
+        """选中城市并打开城市面板。"""
+        self.input_system.set_mode(InputMode.CITY_SELECTED, city.id)
+        self.ui_system.show_city_panel_for(city)
+        self.render_system.clear_selected_unit()
+        self.render_system.clear_reachable_tiles()
+        self._notify(f"选中城市：当前金币 {current_player.gold}。可在城市面板生产移民或士兵。")
+    
     def _handle_unit_selected_click(self, tile, current_player):
         """处理选中单位时的点击"""
         unit_id = self.input_system.get_selected_unit_id()
@@ -418,9 +461,9 @@ class UIClient:
             self.input_system.set_mode(InputMode.NORMAL)
             return
         
-        # 检查是否点击了同一个位置
+        # 点击当前格时，在同格单位/城市之间循环选择
         if tile.coord == unit.position:
-            self._notify("单位已在该位置")
+            self._cycle_selectable_on_tile(tile, current_player)
             return
         
         move_failure = self.game_engine.unit_system.get_move_failure_reason(unit, tile.coord, self.game_engine.map_tiles)
@@ -439,63 +482,33 @@ class UIClient:
         if result.success:
             unit = self._find_unit_by_id(unit_id)
             if unit:
-                reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
-                self.render_system.set_reachable_tiles(set(reachable_tiles))
+                if unit.movement_points <= 0:
+                    self._notify("移动力已耗尽，已取消选中。")
+                    self._clear_ui_selection_state()
+                else:
+                    reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
+                    self.render_system.set_reachable_tiles(set(reachable_tiles))
             else:
-                self.render_system.clear_selected_unit()
-        
-        # 保持单位选中状态，允许连续移动
+                self._clear_ui_selection_state()
     
     def _handle_city_selected_click(self, tile, current_player):
         """处理选中城市时的点击"""
-        # 点击其他地方关闭城市面板
-        if tile.city != self.ui_system.selected_city:
-            self.ui_system._close_city_panel()
-            self.input_system.set_mode(InputMode.NORMAL)
-            
-            # 如果点击了其他对象，递归处理
-            self._handle_normal_click(tile, current_player)
+        # 点击当前城市所在格时，在同格单位/城市之间循环选择
+        if tile.city == self.ui_system.selected_city:
+            self._cycle_selectable_on_tile(tile, current_player)
+            return
+        
+        self.ui_system._close_city_panel()
+        self.input_system.set_mode(InputMode.NORMAL)
+        
+        # 如果点击了其他对象，递归处理
+        self._handle_normal_click(tile, current_player)
     
     def _handle_tile_right_click(self, screen_pos):
-        """处理地块右键点击"""
-        coord = self._get_tile_at_screen_pos(screen_pos[0], screen_pos[1])
-        if not coord:
-            return
-        
-        tile = self.game_engine.map_tiles.get(coord)
-        if not tile:
-            return
-        
-        current_player = self.game_engine.get_current_player()
-          # 如果选中了移民，右键建城
-        if self.input_system.is_unit_selected():
-            unit_id = self.input_system.get_selected_unit_id()
-            unit = self._find_unit_by_id(unit_id)
-            
-            if not unit:
-                self._notify("未找到选中的单位")
-                return
-                
-            if unit.unit_type != UnitType.SETTLER:
-                self._notify(f"只有移民可以建城，当前单位类型: {unit.unit_type.value}")
-                return
-            
-            # 检查单位是否在目标位置
-            if unit.position != coord:
-                self._notify(f"移民不在目标位置。移民位置: ({unit.position.q}, {unit.position.r}), 点击位置: ({coord.q}, {coord.r})")
-                return
-                
-            action = GameAction(
-                player_id=current_player.id,
-                action_type=ActionType.BUILD_CITY,
-                params={'unit_id': unit_id}
-            )
-            
-            self._notify(f"尝试在 ({coord.q}, {coord.r}) 建立城市...")
-            result = self._execute_action_and_notify(action)
-            if result.success:
-                self.input_system.set_mode(InputMode.NORMAL)
-                self.render_system.clear_selected_unit()
+        """处理右键：取消当前选择。"""
+        if self.input_system.mode != InputMode.NORMAL or self.ui_system.show_city_panel or self.render_system.selected_tile:
+            self._clear_ui_selection_state()
+            self._notify("已取消选择")
     
     def _handle_camera_move(self, dx: int, dy: int):
         """处理摄像机移动"""
@@ -531,6 +544,34 @@ class UIClient:
             if key == pygame.K_r:
                 self.start_game(["玩家1", "AI玩家"])
             return
+        
+        if key == pygame.K_b:
+            self._handle_build_city()
+            return
+    
+    def _handle_build_city(self):
+        """处理移民建城。"""
+        unit_id = self.input_system.get_selected_unit_id()
+        unit = self._find_unit_by_id(unit_id) if unit_id else None
+        current_player = self.game_engine.get_current_player()
+        if not unit:
+            self._notify("请先选中一个移民，再建城。")
+            return
+        if unit.owner != current_player:
+            self._notify("只能使用自己的移民建城。")
+            return
+        if unit.unit_type != UnitType.SETTLER:
+            self._notify("只有移民可以建城。")
+            return
+        
+        action = GameAction(
+            player_id=current_player.id,
+            action_type=ActionType.BUILD_CITY,
+            params={'unit_id': unit_id}
+        )
+        result = self._execute_action_and_notify(action)
+        if result.success:
+            self._clear_ui_selection_state()
     
     def _handle_build_unit(self, city_id: str, unit_type: UnitType):
         """处理建造单位"""

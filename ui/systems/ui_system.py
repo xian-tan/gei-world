@@ -43,6 +43,7 @@ class UISystem:
         self.show_city_panel = False
         self.selected_city = None
         self.messages: List[str] = []
+        self.on_build_city = None
         
     def add_message(self, message: str):
         """添加界面消息。"""
@@ -122,11 +123,11 @@ class UISystem:
             y_offset += 10
             help_texts = [
                 "=== 控制说明 ===",
-                "左键: 选择/移动",
+                "左键: 选择/移动/切换",
                 "黄框: 可移动范围",
-                "右键: 移民原地建城",
-                "城市: 生产单位",
-                "ESC: 取消选择"
+                "B/建城按钮: 移民建城",
+                "右键: 取消选择",
+                "城市: 生产单位"
             ]
             
             for help_text in help_texts:
@@ -342,8 +343,21 @@ class UISystem:
         )
         self._draw_button(surface, load_button)
         
+        buttons = [end_turn_button, save_button, load_button]
+        selected_unit = game_state.get('selected_unit')
+        if selected_unit and selected_unit.unit_type == UnitType.SETTLER:
+            build_city_button = Button(
+                rect=pygame.Rect(300, 50, 90, 30),
+                text="建城(B)",
+                callback=self._build_city,
+                color=COLORS['PURPLE'],
+                text_color=COLORS['WHITE']
+            )
+            self._draw_button(surface, build_city_button)
+            buttons.append(build_city_button)
+        
         # 更新按钮列表
-        self.buttons = [end_turn_button, save_button, load_button]
+        self.buttons = buttons
     
     def handle_click(self, pos: tuple) -> bool:
         """处理UI点击事件"""
@@ -385,6 +399,11 @@ class UISystem:
         if hasattr(self, 'on_build_unit'):
             self.on_build_unit(city.id, unit_type)
     
+    def _build_city(self):
+        """建立城市(需要回调到主系统)"""
+        if self.on_build_city:
+            self.on_build_city()
+    
     def _end_turn(self):
         """结束回合"""
         if hasattr(self, 'on_end_turn'):
@@ -402,7 +421,7 @@ class UISystem:
     
     def set_callbacks(self, on_build_unit: Callable = None, 
                      on_end_turn: Callable = None, on_save_game: Callable = None,
-                     on_load_game: Callable = None):
+                     on_load_game: Callable = None, on_build_city: Callable = None):
         """设置回调函数"""
         if on_build_unit:
             self.on_build_unit = on_build_unit
@@ -412,3 +431,5 @@ class UISystem:
             self.on_save_game = on_save_game
         if on_load_game:
             self.on_load_game = on_load_game
+        if on_build_city:
+            self.on_build_city = on_build_city
