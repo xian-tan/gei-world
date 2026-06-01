@@ -38,7 +38,7 @@ def test_ui_fixes():
         distance = coord1.distance_to(coord2)
         print(f"✓ 六边形距离计算: {distance}")
         
-        # 测试游戏结束面板渲染
+        # 测试游戏结束面板和移动范围高亮渲染
         ui_system = UISystem(800, 600)
         surface = pygame.Surface((800, 600))
         winner = Player(id="player_1", name="测试玩家", gold=100)
@@ -49,6 +49,16 @@ def test_ui_fixes():
             'winner': winner
         })
         print("✓ 游戏结束面板渲染成功")
+        
+        # 测试可达地块高亮状态
+        from ui.systems.render_system import RenderSystem
+        render_system = RenderSystem()
+        reachable = {HexCoord(1, 0), HexCoord(0, 1)}
+        render_system.set_reachable_tiles(reachable)
+        assert render_system.reachable_tiles == reachable
+        render_system.clear_reachable_tiles()
+        assert not render_system.reachable_tiles
+        print("✓ 可达地块高亮状态正常")
         
         # 测试 UI 默认存档加载流程
         client = UIClient()

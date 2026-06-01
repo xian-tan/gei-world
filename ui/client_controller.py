@@ -298,6 +298,8 @@ class UIClient:
             unit = player_units[0]  # 选择第一个单位
             self.input_system.set_mode(InputMode.UNIT_SELECTED, unit.id)
             self.render_system.set_selected_unit(unit.id)
+            reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
+            self.render_system.set_reachable_tiles(set(reachable_tiles))
             self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})")
         
         # 检查是否点击了自己的城市
@@ -305,6 +307,7 @@ class UIClient:
             self.input_system.set_mode(InputMode.CITY_SELECTED, tile.city.id)
             self.ui_system.show_city_panel_for(tile.city)
             self.render_system.clear_selected_unit()
+            self.render_system.clear_reachable_tiles()
             self._notify("选中城市")
         
         else:
@@ -312,6 +315,7 @@ class UIClient:
             self.input_system.set_mode(InputMode.NORMAL)
             self.ui_system._close_city_panel()
             self.render_system.clear_selected_unit()
+            self.render_system.clear_reachable_tiles()
     def _handle_unit_selected_click(self, tile, current_player):
         """处理选中单位时的点击"""
         unit_id = self.input_system.get_selected_unit_id()
@@ -342,6 +346,12 @@ class UIClient:
         result = self._execute_action_and_notify(action)
         if result.success:
             self._notify(f"单位移动到 ({tile.coord.q}, {tile.coord.r})")
+            unit = self._find_unit_by_id(unit_id)
+            if unit:
+                reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
+                self.render_system.set_reachable_tiles(set(reachable_tiles))
+            else:
+                self.render_system.clear_selected_unit()
         
         # 保持单位选中状态，允许连续移动
     
@@ -477,6 +487,7 @@ class UIClient:
             self.input_system.set_mode(InputMode.NORMAL)
             self.ui_system._close_city_panel()
             self.render_system.clear_selected_unit()
+            self.render_system.clear_reachable_tiles()
             self._center_camera_on_map()
             self._notify(f"已加载 {save_name}.json")
             self._process_ai_turns()

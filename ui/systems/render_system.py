@@ -27,6 +27,7 @@ class RenderSystem:
         self.selected_tile = None
         self.hovered_tile = None
         self.selected_unit_id = None  # 添加选中单位ID
+        self.reachable_tiles: Set[HexCoord] = set()
         
     def set_selected_unit(self, unit_id: str):
         """设置选中的单位ID"""
@@ -35,6 +36,15 @@ class RenderSystem:
     def clear_selected_unit(self):
         """清除选中的单位"""
         self.selected_unit_id = None
+        self.clear_reachable_tiles()
+    
+    def set_reachable_tiles(self, reachable_tiles: Set[HexCoord]):
+        """设置当前选中单位的可达地块高亮。"""
+        self.reachable_tiles = set(reachable_tiles)
+    
+    def clear_reachable_tiles(self):
+        """清除可达地块高亮。"""
+        self.reachable_tiles.clear()
         
     def set_camera(self, x: int, y: int):
         """设置摄像机位置"""
@@ -120,11 +130,14 @@ class RenderSystem:
             border_color = COLORS['WHITE']
         elif tile.coord == self.hovered_tile:
             border_color = COLORS['LIGHT_GRAY']
+        elif is_visible and tile.coord in self.reachable_tiles:
+            border_color = COLORS['YELLOW']
         
         # 绘制六边形
         radius = int(HEX_RADIUS * self.zoom)
+        border_width = 3 if tile.coord in self.reachable_tiles else (2 if border_color else 1)
         HexRenderer.draw_hex(surface, screen_x, screen_y, color, border_color, 
-                           radius, 2 if border_color else 1)
+                           radius, border_width)
         
         # 只在可见时渲染其他元素
         if is_visible:
