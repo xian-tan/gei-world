@@ -10,6 +10,57 @@ from src.systems.save_system import GameSaveSystem
 
 
 class TestGameplayRules(unittest.TestCase):
+    def test_action_result_reports_success_message_and_events(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        player1 = engine.player_system.players[0]
+        settler = player1.units[0]
+        result = engine.execute_action_with_result(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.BUILD_CITY,
+            params={"unit_id": settler.id}
+        ))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.message, "城市建立成功")
+        self.assertEqual([event.event_type for event in result.events], ["city_built"])
+
+    def test_action_result_reports_city_capture_and_game_over_events(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        attacker, defender = engine.player_system.players
+        city_center = defender.units[0].position
+        for unit in list(defender.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
+        defender.cities.append(city)
+
+        city_tile = engine.map_tiles[city.center_tile]
+        stationed_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, city.center_tile)
+        city_tile.units.append(stationed_soldier)
+        attacker.units.append(stationed_soldier)
+
+        source = next(coord for coord in city.center_tile.neighbors() if coord in engine.map_tiles)
+        engine.map_tiles[source].terrain_type = TerrainType.LAND
+        moving_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, source)
+        engine.map_tiles[source].units.append(moving_soldier)
+        attacker.units.append(moving_soldier)
+
+        result = engine.execute_action_with_result(GameAction(
+            player_id=attacker.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": moving_soldier.id, "target": [city.center_tile.q, city.center_tile.r]}
+        ))
+
+        self.assertTrue(result.success)
+        event_types = [event.event_type for event in result.events]
+        self.assertIn("city_captured", event_types)
+        self.assertIn("game_over", event_types)
+        self.assertEqual(result.message, f"游戏结束，获胜者：{attacker.name}")
+
     def test_non_current_player_cannot_act(self):
         engine = GameEngine()
         self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
@@ -29,7 +80,8 @@ class TestGameplayRules(unittest.TestCase):
         player1, player2 = engine.player_system.players
         enemy_unit = player2.units[0]
         original_position = enemy_unit.position
-        target = original_position.neighbors()[0]
+        target = next(coord for coord in original_position.neighbors() if coord in engine.map_tiles)
+        engine.map_tiles[target].terrain_type = TerrainType.LAND
         self.assertFalse(engine.execute_action(GameAction(
             player_id=player1.id,
             action_type=ActionType.MOVE_UNIT,

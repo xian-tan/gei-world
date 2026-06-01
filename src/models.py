@@ -141,6 +141,33 @@ class GameAction:
 
 
 @dataclass
+class ActionEvent:
+    """行动产生的结构化事件。"""
+    event_type: str
+    message: str = ""
+    data: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        if self.data is None:
+            self.data = {}
+
+
+@dataclass
+class ActionResult:
+    """游戏行动结果。"""
+    success: bool
+    message: str = ""
+    events: List[ActionEvent] = None
+    
+    def __post_init__(self):
+        if self.events is None:
+            self.events = []
+    
+    def __bool__(self):
+        return self.success
+
+
+@dataclass
 class GameState:
     """游戏状态快照"""
     turn: int

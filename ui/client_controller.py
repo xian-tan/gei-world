@@ -77,6 +77,15 @@ class UIClient:
         print(message)
         self.ui_system.add_message(message)
     
+    def _execute_action_and_notify(self, action: GameAction):
+        """执行行动并显示引擎返回的结构化结果。"""
+        result = self.game_engine.execute_action_with_result(action)
+        self._notify(result.message)
+        for event in result.events:
+            if event.message and event.message != result.message:
+                self._notify(event.message)
+        return result
+    
     def start_game(self, player_names: list, map_seed: int = None):
         """开始游戏"""
         if self.game_engine.initialize_game(player_names, map_seed):
@@ -113,9 +122,14 @@ class UIClient:
                     params={}
                 )
             
-            success = self.game_engine.execute_action(action)
+            result = self.game_engine.execute_action_with_result(action)
             actions_taken += 1
-            if not success and action.action_type != ActionType.END_TURN:
+            if result.message:
+                self._notify(f"{current_player.name}: {result.message}")
+            for event in result.events:
+                if event.message and event.message != result.message:
+                    self._notify(event.message)
+            if not result.success and action.action_type != ActionType.END_TURN:
                 self.game_engine.execute_action(GameAction(
                     player_id=current_player.id,
                     action_type=ActionType.END_TURN,
@@ -307,11 +321,9 @@ class UIClient:
             params={'unit_id': unit_id, 'target': [tile.coord.q, tile.coord.r]}
         )
         
-        success = self.game_engine.execute_action(action)
-        if success:
+        result = self._execute_action_and_notify(action)
+        if result.success:
             self._notify(f"单位移动到 ({tile.coord.q}, {tile.coord.r})")
-        else:
-            self._notify("移动失败：可能是目标位置无效或被阻挡")
         
         # 保持单位选中状态，允许连续移动
     
@@ -361,13 +373,10 @@ class UIClient:
             )
             
             self._notify(f"尝试在 ({coord.q}, {coord.r}) 建立城市...")
-            success = self.game_engine.execute_action(action)
-            if success:
-                self._notify(f"成功在 ({coord.q}, {coord.r}) 建立城市！")
+            result = self._execute_action_and_notify(action)
+            if result.success:
                 self.input_system.set_mode(InputMode.NORMAL)
                 self.render_system.clear_selected_unit()
-            else:
-                self._notify("建城失败：可能位置不合适或已有城市")
     
     def _handle_camera_move(self, dx: int, dy: int):
         """处理摄像机移动"""
@@ -404,11 +413,7 @@ class UIClient:
             params={'city_id': city_id, 'unit_type': unit_type.value}
         )
         
-        success = self.game_engine.execute_action(action)
-        if success:
-            self._notify(f"建造 {unit_type.value}")
-        else:
-            self._notify("建造失败：资源不足或其他原因")
+        self._execute_action_and_notify(action)
     
     def _handle_end_turn(self):
         """处理结束回合"""
@@ -420,9 +425,8 @@ class UIClient:
             params={}
         )
         
-        success = self.game_engine.execute_action(action)
-        if success:
-            self._notify("结束回合")
+        result = self._execute_action_and_notify(action)
+        if result.success:
             # 清除选择状态
             self.input_system.set_mode(InputMode.NORMAL)
             self.ui_system._close_city_panel()

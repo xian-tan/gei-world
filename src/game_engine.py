@@ -5,7 +5,7 @@ import random
 from typing import List, Optional, Dict, Any
 
 from .models import (Player, GameAction, ActionType, GameState, 
-                     UnitType, HexCoord, TerrainType)
+                     UnitType, HexCoord, TerrainType, ActionEvent, ActionResult)
 from .systems.map_system import MapSystem
 from .systems.player_system import PlayerSystem
 from .systems.unit_system import UnitSystem
@@ -72,7 +72,19 @@ class GameEngine:
         return True
     
     def execute_action(self, action: GameAction) -> bool:
-        """执行游戏行动"""
+        """执行游戏行动，保留 bool 返回用于兼容旧调用。"""
+        return self.execute_action_with_result(action).success
+    
+    def execute_action_with_result(self, action: GameAction) -> ActionResult:
+        """执行游戏行动并返回结构化结果。"""
+        before = self._capture_action_snapshot()
+        success = self._execute_action_bool(action)
+        events = self._build_action_events(before, action, success)
+        message = self._build_action_message(action, success, events)
+        return ActionResult(success=success, message=message, events=events)
+    
+    def _execute_action_bool(self, action: GameAction) -> bool:
+        """执行游戏行动的内部 bool 实现。"""
         if not self.game_started or self.game_over:
             return False
         
@@ -102,10 +114,11 @@ class GameEngine:
             return False
         
         unit = self.unit_system.get_unit_by_id(unit_id)
-        if not unit:
+        current_player = self.turn_system.get_current_player()
+        if not unit or unit.owner != current_player:
             return False
         
-        acting_player = unit.owner
+        acting_player = current_player
         target_coord = HexCoord(target[0], target[1])
         
         # 执行移动
@@ -234,6 +247,129 @@ class GameEngine:
         # 更新地块单位
         tile.units = survivors_a + survivors_d
         self._sync_unit_registry()
+    
+    def _capture_action_snapshot(self) -> Dict[str, Any]:
+        """捕获行动前状态，用于生成结构化事件。"""
+        return {
+            "unit_ids": {unit.id for unit in self.unit_system.units},
+            "unit_owner_by_id": {unit.id: unit.owner.id for unit in self.unit_system.units},
+            "unit_position_by_id": {unit.id: [unit.position.q, unit.position.r] for unit in self.unit_system.units},
+            "city_ids": {city.id for city in self.city_system.cities},
+            "city_owner_by_id": {city.id: city.owner.id for city in self.city_system.cities},
+            "game_over": self.game_over,
+            "winner_id": self.winner.id if self.winner else None,
+        }
+    
+    def _build_action_events(self, before: Dict[str, Any], action: GameAction, success: bool) -> List[ActionEvent]:
+        """根据行动前后状态生成结构化事件。"""
+        events = []
+        current_unit_ids = {unit.id for unit in self.unit_system.units}
+        current_city_ids = {city.id for city in self.city_system.cities}
+        
+        if success and action.action_type == ActionType.MOVE_UNIT:
+            unit_id = action.params.get("unit_id")
+            unit = self.unit_system.get_unit_by_id(unit_id)
+            if unit:
+                events.append(ActionEvent(
+                    event_type="unit_moved",
+                    message="单位移动成功",
+                    data={
+                        "unit_id": unit.id,
+                        "owner_id": unit.owner.id,
+                        "from": before["unit_position_by_id"].get(unit.id),
+                        "to": [unit.position.q, unit.position.r]
+                    }
+                ))
+        
+        if success and action.action_type == ActionType.BUILD_CITY:
+            new_city_ids = current_city_ids - before["city_ids"]
+            for city in self.city_system.cities:
+                if city.id in new_city_ids:
+                    events.append(ActionEvent(
+                        event_type="city_built",
+                        message=f"{city.owner.name} 建立了城市",
+                        data={
+                            "city_id": city.id,
+                            "owner_id": city.owner.id,
+                            "position": [city.center_tile.q, city.center_tile.r]
+                        }
+                    ))
+        
+        if success and action.action_type == ActionType.BUILD_UNIT:
+            new_unit_ids = current_unit_ids - before["unit_ids"]
+            for unit in self.unit_system.units:
+                if unit.id in new_unit_ids:
+                    events.append(ActionEvent(
+                        event_type="unit_produced",
+                        message=f"{unit.owner.name} 生产了 {unit.unit_type.value}",
+                        data={
+                            "unit_id": unit.id,
+                            "owner_id": unit.owner.id,
+                            "unit_type": unit.unit_type.value,
+                            "position": [unit.position.q, unit.position.r]
+                        }
+                    ))
+        
+        if success and action.action_type == ActionType.END_TURN:
+            current_player = self.turn_system.get_current_player()
+            events.append(ActionEvent(
+                event_type="turn_ended",
+                message="回合结束",
+                data={"next_player_id": current_player.id if current_player else None}
+            ))
+        
+        destroyed_unit_ids = before["unit_ids"] - current_unit_ids
+        consumed_unit_id = action.params.get("unit_id") if action.action_type == ActionType.BUILD_CITY else None
+        for unit_id in sorted(destroyed_unit_ids):
+            if unit_id == consumed_unit_id:
+                continue
+            events.append(ActionEvent(
+                event_type="unit_destroyed",
+                message="单位被消灭",
+                data={
+                    "unit_id": unit_id,
+                    "owner_id": before["unit_owner_by_id"].get(unit_id)
+                }
+            ))
+        
+        for city in self.city_system.cities:
+            old_owner_id = before["city_owner_by_id"].get(city.id)
+            if old_owner_id and old_owner_id != city.owner.id:
+                events.append(ActionEvent(
+                    event_type="city_captured",
+                    message=f"城市被 {city.owner.name} 占领",
+                    data={
+                        "city_id": city.id,
+                        "old_owner_id": old_owner_id,
+                        "new_owner_id": city.owner.id,
+                        "position": [city.center_tile.q, city.center_tile.r]
+                    }
+                ))
+        
+        if self.game_over and not before["game_over"]:
+            events.append(ActionEvent(
+                event_type="game_over",
+                message=f"游戏结束，获胜者：{self.winner.name if self.winner else '无'}",
+                data={"winner_id": self.winner.id if self.winner else None}
+            ))
+        
+        return events
+    
+    def _build_action_message(self, action: GameAction, success: bool, events: List[ActionEvent]) -> str:
+        """生成人类可读的行动结果消息。"""
+        if events:
+            for event in reversed(events):
+                if event.event_type in {"game_over", "city_captured", "unit_destroyed"}:
+                    return event.message
+        if not success:
+            return "行动失败"
+        messages = {
+            ActionType.MOVE_UNIT: "单位移动成功",
+            ActionType.BUILD_CITY: "城市建立成功",
+            ActionType.BUILD_UNIT: "单位生产成功",
+            ActionType.END_TURN: "回合结束",
+        }
+        return messages.get(action.action_type, "行动成功")
     
     def _sync_unit_registry(self):
         """同步全局单位列表，移除已从玩家列表或地图上消失的单位。"""
