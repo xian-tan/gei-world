@@ -80,20 +80,61 @@ def test_hex_renderer():
     print("\n=== 六边形渲染器测试 ===")
     
     from ui.hex_renderer import HexRenderer
+    from ui.ui_config import OFFSET_X, OFFSET_Y
     
-    # 测试多个坐标转换
-    test_coords = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (1, -1), (-1, 1)]
+    # 测试多个坐标转换，必须严格回到同一格，避免点击相邻格
+    test_coords = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (1, -1), (-1, 1), (2, -3), (-4, 5)]
     
     for q, r in test_coords:
         x, y = HexRenderer.hex_to_pixel(q, r)
         back_q, back_r = HexRenderer.pixel_to_hex(x, y)
+        assert (back_q, back_r) == (q, r), f"坐标 ({q}, {r}) 转换失败: 得到 ({back_q}, {back_r})"
         
-        if abs(back_q - q) <= 1 and abs(back_r - r) <= 1:  # 允许舍入误差
-            print(f"✓ 坐标 ({q}, {r}) 转换正常")
-        else:
-            print(f"✗ 坐标 ({q}, {r}) 转换失败: 得到 ({back_q}, {back_r})")
+        offset_x, offset_y = HexRenderer.hex_to_pixel(q, r, OFFSET_X, OFFSET_Y)
+        offset_back_q, offset_back_r = HexRenderer.pixel_to_hex(offset_x, offset_y, OFFSET_X, OFFSET_Y)
+        assert (offset_back_q, offset_back_r) == (q, r), f"带偏移坐标 ({q}, {r}) 转换失败"
+        print(f"✓ 坐标 ({q}, {r}) 转换正常")
     
     print("六边形渲染器测试完成")
+
+
+def test_ui_coordinate_system_consistency():
+    """测试渲染中心、摄像机和点击拾取使用同一坐标系。"""
+    from ui.hex_renderer import HexRenderer
+    from ui.systems.camera_system import CameraSystem
+    from ui.systems.render_system import RenderSystem
+    from ui.ui_config import OFFSET_X, OFFSET_Y, SCREEN_WIDTH, SCREEN_HEIGHT
+    
+    camera = CameraSystem(SCREEN_WIDTH, SCREEN_HEIGHT)
+    render = RenderSystem()
+    scenarios = [
+        (0, 0, 1.0),
+        (120, -80, 0.75),
+        (320, 240, 1.6),
+    ]
+    world_points = [
+        HexRenderer.hex_to_pixel(0, 0, OFFSET_X, OFFSET_Y),
+        HexRenderer.hex_to_pixel(1, 0, OFFSET_X, OFFSET_Y),
+        HexRenderer.hex_to_pixel(-2, 3, OFFSET_X, OFFSET_Y),
+    ]
+    
+    for camera_x, camera_y, zoom in scenarios:
+        camera.set_position(camera_x, camera_y)
+        camera.zoom = zoom
+        render.camera_x, render.camera_y = camera.get_position()
+        render.zoom = camera.get_zoom()
+        for world_x, world_y in world_points:
+            assert render.world_to_screen(world_x, world_y) == camera.world_to_screen(world_x, world_y)
+    
+    client = UIClient()
+    assert client.start_game(["测试玩家1", "测试玩家2"], 12345)
+    sample_coords = list(client.game_engine.map_tiles.keys())[:8]
+    for zoom in (1.0, 1.7):
+        client.camera_system.zoom = zoom
+        for coord in sample_coords:
+            world_x, world_y = HexRenderer.hex_to_pixel(coord.q, coord.r, OFFSET_X, OFFSET_Y)
+            screen_x, screen_y = client.camera_system.world_to_screen(world_x, world_y)
+            assert client._get_tile_at_screen_pos(screen_x, screen_y) == coord
 
 
 if __name__ == "__main__":

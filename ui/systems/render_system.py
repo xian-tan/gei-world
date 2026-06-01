@@ -14,7 +14,7 @@ sys.path.insert(0, project_root)
 
 from src.models import HexCoord, Tile, TerrainType, Player
 from ui.hex_renderer import HexRenderer
-from ui.ui_config import COLORS, HEX_RADIUS, OFFSET_X, OFFSET_Y
+from ui.ui_config import COLORS, HEX_RADIUS, OFFSET_X, OFFSET_Y, SCREEN_WIDTH, SCREEN_HEIGHT
 
 
 class RenderSystem:
@@ -24,6 +24,8 @@ class RenderSystem:
         self.camera_x = 0
         self.camera_y = 0
         self.zoom = 1.0
+        self.screen_width = SCREEN_WIDTH
+        self.screen_height = SCREEN_HEIGHT
         self.selected_tile = None
         self.hovered_tile = None
         self.selected_unit_id = None  # 添加选中单位ID
@@ -61,16 +63,16 @@ class RenderSystem:
         self.zoom = max(0.5, min(2.0, zoom))
     
     def world_to_screen(self, world_x: int, world_y: int) -> Tuple[int, int]:
-        """世界坐标转屏幕坐标"""
-        screen_x = (world_x - self.camera_x) * self.zoom
-        screen_y = (world_y - self.camera_y) * self.zoom
+        """世界坐标转屏幕坐标，与 CameraSystem 使用相同原点约定。"""
+        screen_x = (world_x - self.camera_x) * self.zoom + self.screen_width // 2
+        screen_y = (world_y - self.camera_y) * self.zoom + self.screen_height // 2
         return int(screen_x), int(screen_y)
     
-    def screen_to_world(self, screen_x: int, screen_y: int) -> Tuple[int, int]:
-        """屏幕坐标转世界坐标"""
-        world_x = screen_x / self.zoom + self.camera_x
-        world_y = screen_y / self.zoom + self.camera_y
-        return int(world_x), int(world_y)
+    def screen_to_world(self, screen_x: int, screen_y: int) -> Tuple[float, float]:
+        """屏幕坐标转世界坐标，与 CameraSystem 使用相同原点约定。"""
+        world_x = (screen_x - self.screen_width // 2) / self.zoom + self.camera_x
+        world_y = (screen_y - self.screen_height // 2) / self.zoom + self.camera_y
+        return world_x, world_y
     
     def render_map(self, surface: pygame.Surface, tiles: Dict[HexCoord, Tile], 
                    visible_tiles: Set[HexCoord], explored_tiles: Set[HexCoord],
@@ -78,6 +80,8 @@ class RenderSystem:
         """渲染地图"""
         screen_width = surface.get_width()
         screen_height = surface.get_height()
+        self.screen_width = screen_width
+        self.screen_height = screen_height
         
         # 计算需要渲染的地块范围
         visible_range = self._get_visible_tile_range(screen_width, screen_height)

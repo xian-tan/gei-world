@@ -31,9 +31,9 @@ class HexRenderer:
         rel_x = x - center_x
         rel_y = y - center_y
         
-        # 平顶式六边形的逆变换公式
-        q = (math.sqrt(3.0)/3.0 * rel_x - 1.0/3.0 * rel_y) / HEX_RADIUS
-        r = (2.0/3.0 * rel_y) / HEX_RADIUS
+        # 平顶式六边形的逆变换公式，与 hex_to_pixel 保持互逆
+        q = (2.0 / 3.0 * rel_x) / HEX_RADIUS
+        r = (-1.0 / 3.0 * rel_x + math.sqrt(3.0) / 3.0 * rel_y) / HEX_RADIUS
         
         return HexRenderer.cube_round(q, r, -q-r)
     

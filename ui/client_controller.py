@@ -317,9 +317,7 @@ class UIClient:
     def _get_tile_at_screen_pos(self, screen_x: int, screen_y: int) -> Optional[HexCoord]:
         """获取屏幕位置对应的地块"""
         world_x, world_y = self.camera_system.screen_to_world(screen_x, screen_y)
-        world_x += OFFSET_X
-        world_y += OFFSET_Y
-        q, r = HexRenderer.pixel_to_hex(world_x, world_y)
+        q, r = HexRenderer.pixel_to_hex(world_x, world_y, OFFSET_X, OFFSET_Y)
         coord = HexCoord(q, r)
         
         # 检查坐标是否在地图范围内
