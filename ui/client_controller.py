@@ -73,6 +73,14 @@ class UIClient:
             on_load_game=self._handle_load_game
         )
     
+    def _clear_ui_selection_state(self):
+        """清理 UI 选中状态、城市面板和可达高亮。"""
+        self.input_system.set_mode(InputMode.NORMAL)
+        self.ui_system._close_city_panel()
+        self.render_system.selected_tile = None
+        self.render_system.clear_selected_unit()
+        self.render_system.clear_reachable_tiles()
+    
     def _notify(self, message: str):
         """同时输出控制台和界面消息。"""
         print(message)
@@ -147,8 +155,11 @@ class UIClient:
     
     def start_game(self, player_names: list, map_seed: int = None):
         """开始游戏"""
-        if self.game_engine.initialize_game(player_names, map_seed):
+        new_engine = GameEngine()
+        if new_engine.initialize_game(player_names, map_seed):
+            self.game_engine = new_engine
             self.game_started = True
+            self._clear_ui_selection_state()
             self._setup_ai_players()
             
             # 将摄像机移动到地图中心
@@ -223,7 +234,7 @@ class UIClient:
         # 计算地图中心
         center_q = (min_q + max_q) / 2
         center_r = (min_r + max_r) / 2
-        center_x, center_y = HexRenderer.hex_to_pixel(center_q, center_r)
+        center_x, center_y = HexRenderer.hex_to_pixel(center_q, center_r, OFFSET_X, OFFSET_Y)
         
         self.camera_system.set_position(center_x, center_y)
     
@@ -288,12 +299,23 @@ class UIClient:
     def _render_start_screen(self):
         """渲染开始界面"""
         title = self.font_manager.render_text("六边形策略游戏", 'large', COLORS['WHITE'])
-        title_rect = title.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 100))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 120))
         self.screen.blit(title, title_rect)
         
-        instruction = self.font_manager.render_text("按 SPACE 开始游戏", 'medium', COLORS['WHITE'])
-        instruction_rect = instruction.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 50))
-        self.screen.blit(instruction, instruction_rect)
+        instructions = [
+            "SPACE 新游戏",
+            "L 加载游戏",
+            "ESC 退出",
+        ]
+        for index, text in enumerate(instructions):
+            instruction = self.font_manager.render_text(text, 'medium', COLORS['WHITE'])
+            instruction_rect = instruction.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 55 + index * 34))
+            self.screen.blit(instruction, instruction_rect)
+        
+        if self.ui_system.messages:
+            message = self.font_manager.render_text(self.ui_system.messages[-1], 'small', COLORS['LIGHT_GRAY'])
+            message_rect = message.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 75))
+            self.screen.blit(message, message_rect)
     
     def _get_game_state(self) -> Dict[str, Any]:
         """获取游戏状态快照"""
@@ -480,17 +502,26 @@ class UIClient:
         if not pressed:  # 只处理按下事件
             return
         
-        if key == pygame.K_SPACE and not self.game_started:
-            # 开始游戏
-            self.start_game(["玩家1", "AI玩家"])
-        
-        elif key == pygame.K_ESCAPE:
-            # 取消选择或退出
-            if self.input_system.mode != InputMode.NORMAL:
-                self.input_system.set_mode(InputMode.NORMAL)
-                self.ui_system._close_city_panel()
+        if key == pygame.K_ESCAPE:
+            if not self.game_started or self.game_engine.game_over:
+                self.running = False
+            elif self.input_system.mode != InputMode.NORMAL:
+                self._clear_ui_selection_state()
             else:
                 self.running = False
+            return
+        
+        if not self.game_started:
+            if key == pygame.K_SPACE:
+                self.start_game(["玩家1", "AI玩家"])
+            elif key == pygame.K_l:
+                self._handle_load_game()
+            return
+        
+        if self.game_engine.game_over:
+            if key == pygame.K_r:
+                self.start_game(["玩家1", "AI玩家"])
+            return
     
     def _handle_build_unit(self, city_id: str, unit_type: UnitType):
         """处理建造单位"""
@@ -515,9 +546,7 @@ class UIClient:
         
         result = self._execute_action_and_notify(action)
         if result.success:
-            # 清除选择状态
-            self.input_system.set_mode(InputMode.NORMAL)
-            self.ui_system._close_city_panel()
+            self._clear_ui_selection_state()
             self._process_ai_turns()
     
     def _handle_save_game(self):
@@ -544,10 +573,7 @@ class UIClient:
             self.game_engine = loaded_engine
             self.game_started = True
             self._restore_ai_players_from_engine()
-            self.input_system.set_mode(InputMode.NORMAL)
-            self.ui_system._close_city_panel()
-            self.render_system.clear_selected_unit()
-            self.render_system.clear_reachable_tiles()
+            self._clear_ui_selection_state()
             self._center_camera_on_map()
             self._notify(f"已加载 {save_name}.json")
             self._process_ai_turns()

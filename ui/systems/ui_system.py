@@ -368,6 +368,8 @@ class UISystem:
         """关闭城市面板"""
         self.show_city_panel = False
         self.selected_city = None
+        if hasattr(self, '_temp_city_buttons'):
+            self._temp_city_buttons = []
     
     def _build_unit(self, city: City, unit_type: UnitType):
         """建造单位(需要回调到主系统)"""
