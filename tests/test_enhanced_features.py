@@ -62,6 +62,60 @@ def test_ai_system():
     print("✓ AI系统测试完成")
 
 
+def test_aggressive_ai_waits_for_enough_force_before_attacking_city():
+    """测试激进 AI 兵力不足时不会直接送死攻城"""
+    engine = GameEngine()
+    assert engine.initialize_game(["AI玩家1", "AI玩家2"], map_seed=123)
+
+    attacker, defender = engine.player_system.players
+    for player in [attacker, defender]:
+        for unit in list(player.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+    city_center = HexCoord(0, 0)
+    stage = HexCoord(1, 0)
+    for coord in [city_center, stage]:
+        engine.map_tiles[coord].terrain_type = TerrainType.LAND
+    city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
+    defender.cities.append(city)
+
+    soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, stage)
+    engine.map_tiles[stage].units.append(soldier)
+    attacker.units.append(soldier)
+
+    ai = AggressiveAI(attacker)
+    target = ai._find_move_target(soldier, engine)
+    assert target != city_center
+
+
+def test_aggressive_ai_attacks_city_when_force_is_sufficient():
+    """测试激进 AI 兵力足够时会直接攻城"""
+    engine = GameEngine()
+    assert engine.initialize_game(["AI玩家1", "AI玩家2"], map_seed=123)
+
+    attacker, defender = engine.player_system.players
+    for player in [attacker, defender]:
+        for unit in list(player.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+    city_center = HexCoord(0, 0)
+    stage = HexCoord(1, 0)
+    for coord in [city_center, stage]:
+        engine.map_tiles[coord].terrain_type = TerrainType.LAND
+    city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
+    defender.cities.append(city)
+
+    stationed_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, city_center)
+    moving_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, stage)
+    engine.map_tiles[city_center].units.append(stationed_soldier)
+    engine.map_tiles[stage].units.append(moving_soldier)
+    attacker.units.extend([stationed_soldier, moving_soldier])
+
+    ai = AggressiveAI(attacker)
+    target = ai._find_move_target(moving_soldier, engine)
+    assert target == city_center
+
+
 def test_ai_uses_reachable_movement_targets():
     """测试 AI 只选择真实可达移动目标"""
     engine = GameEngine()

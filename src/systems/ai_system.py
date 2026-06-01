@@ -5,6 +5,7 @@ import random
 from typing import Optional, List
 from ..models import Player, GameAction, ActionType, UnitType, HexCoord
 from ..game_engine import GameEngine
+from ..config import CITY_CONFIG
 
 
 class AIPlayer:
@@ -162,25 +163,83 @@ class AggressiveAI(SimpleAI):
         if unit.unit_type != UnitType.SOLDIER:
             return super()._find_move_target(unit, engine)
         
-        # 士兵优先寻找真实可达的敌方目标
         reachable_tiles = engine.unit_system.get_reachable_tiles(unit, engine.map_tiles)
+        if not reachable_tiles:
+            return None
         
-        # 寻找敌方单位或领土
-        for coord in reachable_tiles:
-            tile = engine.map_tiles.get(coord)
-            if tile and tile.terrain_type.value == "land":
-                # 检查是否有敌方单位
-                if tile.units:
-                    for enemy_unit in tile.units:
-                        if enemy_unit.owner != self.player:
-                            return coord
-                
-                # 检查是否是敌方领土
-                if tile.owner and tile.owner != self.player:
-                    return coord
+        enemy_unit_target = self._find_reachable_enemy_unit(reachable_tiles, engine)
+        if enemy_unit_target:
+            return enemy_unit_target
+        
+        city_attack_target = self._find_reachable_capturable_city(unit, reachable_tiles, engine)
+        if city_attack_target:
+            return city_attack_target
+        
+        enemy_city = self._find_nearest_enemy_city(unit.position, engine)
+        if enemy_city:
+            return self._find_best_staging_tile(enemy_city.center_tile, reachable_tiles, engine)
+        
+        enemy_territory_target = self._find_reachable_enemy_territory(reachable_tiles, engine)
+        if enemy_territory_target:
+            return enemy_territory_target
         
         # 如果没有敌方目标，随机移动
         return super()._find_move_target(unit, engine)
+    
+    def _find_reachable_enemy_unit(self, reachable_tiles, engine: GameEngine) -> Optional[HexCoord]:
+        """寻找可达的敌方单位。"""
+        for coord in reachable_tiles:
+            tile = engine.map_tiles.get(coord)
+            if tile and any(enemy.owner != self.player for enemy in tile.units):
+                return coord
+        return None
+    
+    def _find_reachable_capturable_city(self, unit, reachable_tiles, engine: GameEngine) -> Optional[HexCoord]:
+        """如果兵力足够，寻找可直接攻占的敌方城市。"""
+        for coord in reachable_tiles:
+            tile = engine.map_tiles.get(coord)
+            if not tile or not tile.city or tile.city.owner == self.player:
+                continue
+            attacking_soldiers = [
+                other for other in tile.units
+                if other.owner == self.player and other.unit_type == UnitType.SOLDIER
+            ]
+            if unit not in attacking_soldiers:
+                attacking_soldiers.append(unit)
+            if len(attacking_soldiers) >= CITY_CONFIG["defense_value"]:
+                return coord
+        return None
+    
+    def _find_nearest_enemy_city(self, position: HexCoord, engine: GameEngine):
+        """寻找最近的敌方城市。"""
+        enemy_cities = [city for city in engine.city_system.cities if city.owner != self.player]
+        if not enemy_cities:
+            return None
+        return min(enemy_cities, key=lambda city: position.distance_to(city.center_tile))
+    
+    def _find_best_staging_tile(self, target: HexCoord, reachable_tiles, engine: GameEngine) -> Optional[HexCoord]:
+        """向敌方城市集结，避免兵力不足时直接送死攻城。"""
+        candidates = []
+        for coord in reachable_tiles:
+            tile = engine.map_tiles.get(coord)
+            if not tile:
+                continue
+            if tile.city and tile.city.owner != self.player:
+                continue
+            candidates.append(coord)
+        if not candidates:
+            return None
+        return min(candidates, key=lambda coord: coord.distance_to(target))
+    
+    def _find_reachable_enemy_territory(self, reachable_tiles, engine: GameEngine) -> Optional[HexCoord]:
+        """寻找可达的敌方领土。"""
+        enemy_tiles = [
+            coord for coord in reachable_tiles
+            if engine.map_tiles.get(coord)
+            and engine.map_tiles[coord].owner
+            and engine.map_tiles[coord].owner != self.player
+        ]
+        return enemy_tiles[0] if enemy_tiles else None
 
 
 class AIManager:
