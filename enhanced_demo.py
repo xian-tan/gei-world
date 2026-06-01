@@ -249,7 +249,7 @@ class EnhancedDemo:
             return False
         
         for settler in settlers:
-            if self.engine.city_system.can_build_city(settler.position, self.engine.map_tiles):
+            if self.engine.city_system.can_build_city(settler.position, self.engine.map_tiles, settler.owner):
                 action = GameAction(
                     player_id=player.id,
                     action_type=ActionType.BUILD_CITY,

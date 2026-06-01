@@ -15,7 +15,7 @@ class CitySystem:
     def create_city(self, owner: Player, center_tile: HexCoord, map_tiles: dict) -> City:
         """建立城市"""
         # 检查是否可以建城
-        if not self.can_build_city(center_tile, map_tiles):
+        if not self.can_build_city(center_tile, map_tiles, owner):
             raise ValueError("无法在此位置建城")
         
         # 创建城市
@@ -44,7 +44,7 @@ class CitySystem:
         self.cities.append(city)
         return city
     
-    def can_build_city(self, position: HexCoord, map_tiles: dict) -> bool:
+    def can_build_city(self, position: HexCoord, map_tiles: dict, owner: Player = None) -> bool:
         """检查是否可以建城"""
         tile = map_tiles.get(position)
         if not tile:
@@ -58,8 +58,16 @@ class CitySystem:
         if tile.city:
             return False
         
-        # 检查是否在敌方城市核心范围内
-        # TODO: 实现更复杂的建城限制
+        # 不能在敌方已拥有地块建城
+        if owner and tile.owner and tile.owner != owner:
+            return False
+        
+        # 不能在敌方城市核心范围内建城
+        if owner:
+            core_radius = CITY_CONFIG["territory_radius"]
+            for city in self.cities:
+                if city.owner != owner and city.center_tile.distance_to(position) <= core_radius:
+                    return False
         
         return True
     

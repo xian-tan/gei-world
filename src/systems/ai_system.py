@@ -60,7 +60,7 @@ class SimpleAI(AIPlayer):
         for settler in settlers:
             # 检查是否可以在当前位置建城
             try:
-                if engine.city_system.can_build_city(settler.position, engine.map_tiles):
+                if engine.city_system.can_build_city(settler.position, engine.map_tiles, settler.owner):
                     return GameAction(
                         player_id=self.player.id,
                         action_type=ActionType.BUILD_CITY,

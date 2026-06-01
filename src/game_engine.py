@@ -118,6 +118,7 @@ class GameEngine:
             unit = self.unit_system.get_unit_by_id(unit_id)
             if not unit or not target_tile or unit not in target_tile.units:
                 self._update_all_visions()
+                self._check_game_over()
                 return True
             
             # 士兵进入敌方城市中心时触发攻城
@@ -134,6 +135,7 @@ class GameEngine:
             
             # 更新视野
             self._update_all_visions()
+            self._check_game_over()
             return True
         
         return False
@@ -146,7 +148,8 @@ class GameEngine:
             return False
         
         unit = self.unit_system.get_unit_by_id(unit_id)
-        if not unit or unit.unit_type != UnitType.SETTLER:
+        current_player = self.turn_system.get_current_player()
+        if not unit or unit.owner != current_player or unit.unit_type != UnitType.SETTLER:
             return False
         
         # 建城
@@ -177,7 +180,8 @@ class GameEngine:
             return False
         
         city = self.city_system.get_city_by_id(city_id)
-        if not city:
+        current_player = self.turn_system.get_current_player()
+        if not city or city.owner != current_player:
             return False
         
         # 建造单位
@@ -197,9 +201,7 @@ class GameEngine:
         )
         
         # 检查游戏是否结束
-        if self.turn_system.is_game_over():
-            self.game_over = True
-            self.winner = self.turn_system.get_winner()
+        self._check_game_over()
         
         return True
     
@@ -246,6 +248,12 @@ class GameEngine:
         """刷新所有玩家视野。"""
         for player in self.player_system.players:
             self.vision_system.update_player_vision(player, self.map_tiles)
+    
+    def _check_game_over(self):
+        """统一检查并更新游戏结束状态。"""
+        if self.turn_system.is_game_over():
+            self.game_over = True
+            self.winner = self.turn_system.get_winner()
     
     def get_current_player(self) -> Optional[Player]:
         """获取当前行动玩家"""
