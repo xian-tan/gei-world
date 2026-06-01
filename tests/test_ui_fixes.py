@@ -87,7 +87,7 @@ def test_ui_fixes():
             success=True,
             message="单位移动成功",
             events=[
-                ActionEvent("unit_moved", "单位移动成功"),
+                ActionEvent("unit_moved", "单位移动成功", {"from_terrain": "land", "to_terrain": "ocean"}),
                 ActionEvent("combat_resolved", data={"destroyed_unit_ids": ["u1", "u2"]}),
                 ActionEvent("unit_destroyed", "单位被消灭", {"unit_id": "u1"})
             ]
@@ -95,6 +95,15 @@ def test_ui_fixes():
         assert "战斗结束：消灭 2 个单位" in client.ui_system.messages
         assert "单位移动成功" not in client.ui_system.messages[-2:]
         print("✓ 战斗详情消息格式化成功")
+        
+        client.ui_system.messages.clear()
+        client._notify_action_result(ActionResult(
+            success=True,
+            message="单位移动成功",
+            events=[ActionEvent("unit_moved", "单位移动成功", {"from_terrain": "land", "to_terrain": "ocean"})]
+        ))
+        assert "单位下海，移动力已耗尽" in client.ui_system.messages
+        print("✓ 海陆移动消息格式化成功")
         
         # 测试 UI 默认存档加载流程
         assert client.start_game(["玩家1", "AI玩家"], 123)

@@ -152,6 +152,8 @@ class UISystem:
             owner_name = selected_tile.owner.name if selected_tile.owner else "无"
             lines.append(f"归属: {owner_name}")
         if selected_unit:
+            if selected_tile:
+                lines.append(f"所在地形: {selected_tile.terrain_type.value}")
             lines.append(f"单位: {selected_unit.unit_type.value}")
             lines.append(f"移动力: {selected_unit.movement_points}/{selected_unit.max_movement_points}")
             lines.append(f"视野: {selected_unit.vision_range}")

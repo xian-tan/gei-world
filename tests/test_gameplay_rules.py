@@ -112,13 +112,18 @@ class TestGameplayRules(unittest.TestCase):
         engine.map_tiles[start].units.append(settler)
         player1.units.append(settler)
 
-        self.assertTrue(engine.execute_action(GameAction(
+        result = engine.execute_action_with_result(GameAction(
             player_id=player1.id,
             action_type=ActionType.MOVE_UNIT,
             params={"unit_id": settler.id, "target": [ocean.q, ocean.r]}
-        )))
+        ))
+        self.assertTrue(result.success)
         self.assertEqual(settler.position, ocean)
         self.assertEqual(settler.movement_points, 0)
+        move_event = next(event for event in result.events if event.event_type == "unit_moved")
+        self.assertEqual(move_event.data["from_terrain"], "land")
+        self.assertEqual(move_event.data["to_terrain"], "ocean")
+        self.assertEqual(move_event.data["remaining_movement"], 0)
 
     def test_sea_movement_is_halved(self):
         engine = GameEngine()

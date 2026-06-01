@@ -267,6 +267,10 @@ class GameEngine:
             "unit_ids": {unit.id for unit in self.unit_system.units},
             "unit_owner_by_id": {unit.id: unit.owner.id for unit in self.unit_system.units},
             "unit_position_by_id": {unit.id: [unit.position.q, unit.position.r] for unit in self.unit_system.units},
+            "tile_terrain_by_coord": {
+                (coord.q, coord.r): tile.terrain_type.value
+                for coord, tile in self.map_tiles.items()
+            },
             "city_ids": {city.id for city in self.city_system.cities},
             "city_owner_by_id": {city.id: city.owner.id for city in self.city_system.cities},
             "game_over": self.game_over,
@@ -283,14 +287,24 @@ class GameEngine:
             unit_id = action.params.get("unit_id")
             unit = self.unit_system.get_unit_by_id(unit_id)
             if unit:
+                from_position = before["unit_position_by_id"].get(unit.id)
+                to_position = [unit.position.q, unit.position.r]
+                from_terrain = None
+                if from_position:
+                    from_terrain = before["tile_terrain_by_coord"].get(tuple(from_position))
+                to_tile = self.map_tiles.get(unit.position)
+                to_terrain = to_tile.terrain_type.value if to_tile else None
                 events.append(ActionEvent(
                     event_type="unit_moved",
                     message="单位移动成功",
                     data={
                         "unit_id": unit.id,
                         "owner_id": unit.owner.id,
-                        "from": before["unit_position_by_id"].get(unit.id),
-                        "to": [unit.position.q, unit.position.r]
+                        "from": from_position,
+                        "to": to_position,
+                        "from_terrain": from_terrain,
+                        "to_terrain": to_terrain,
+                        "remaining_movement": unit.movement_points
                     }
                 ))
         

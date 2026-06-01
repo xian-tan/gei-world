@@ -128,6 +128,14 @@ class UIClient:
         if event.event_type == "game_over":
             return event.message or "游戏结束"
         if event.event_type == "unit_moved":
+            from_terrain = event.data.get("from_terrain")
+            to_terrain = event.data.get("to_terrain")
+            if from_terrain == "land" and to_terrain == "ocean":
+                return "单位下海，移动力已耗尽"
+            if from_terrain == "ocean" and to_terrain == "ocean":
+                return "单位在海上移动"
+            if from_terrain == "ocean" and to_terrain == "land":
+                return "单位登陆"
             return "单位移动成功"
         if event.event_type == "city_built":
             return event.message or "城市建立成功"
