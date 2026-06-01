@@ -81,6 +81,16 @@ class UnitSystem:
         
         return True
     
+    def get_reachable_tiles(self, unit: Unit, map_tiles: dict) -> List[HexCoord]:
+        """获取单位当前移动力内真实可达的陆地地块。"""
+        reachable = []
+        for coord, tile in map_tiles.items():
+            if coord == unit.position or tile.terrain_type.value == "ocean":
+                continue
+            if self._find_land_path_distance(unit.position, coord, unit.movement_points, map_tiles) is not None:
+                reachable.append(coord)
+        return reachable
+    
     def _find_land_path_distance(self, start: HexCoord, target: HexCoord,
                                  max_distance: int, map_tiles: dict) -> Optional[int]:
         """查找移动力范围内的陆地路径距离。"""

@@ -4,6 +4,7 @@
 import tempfile
 
 from src.game_engine import GameEngine
+from src.models import HexCoord, TerrainType, UnitType
 from src.systems.ai_system import AIManager, SimpleAI, AggressiveAI
 from src.systems.save_system import GameSaveSystem
 from src.utils import get_player_statistics
@@ -59,6 +60,33 @@ def test_ai_system():
             print(f"  {stats['name']}: 💰{stats['gold']} 🏙️{stats['cities']} 👥{len(player.units)}")
     
     print("✓ AI系统测试完成")
+
+
+def test_ai_uses_reachable_movement_targets():
+    """测试 AI 只选择真实可达移动目标"""
+    engine = GameEngine()
+    assert engine.initialize_game(["AI玩家1", "AI玩家2"], map_seed=123)
+
+    player = engine.player_system.players[0]
+    for unit in list(player.units):
+        engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+    start = HexCoord(0, 0)
+    blocked = HexCoord(1, 0)
+    unreachable = HexCoord(2, 0)
+    reachable = HexCoord(0, 1)
+    for coord in [start, unreachable, reachable]:
+        engine.map_tiles[coord].terrain_type = TerrainType.LAND
+    engine.map_tiles[blocked].terrain_type = TerrainType.OCEAN
+
+    soldier = engine.unit_system.create_unit(UnitType.SOLDIER, player, start)
+    engine.map_tiles[start].units.append(soldier)
+    player.units.append(soldier)
+
+    ai = SimpleAI(player)
+    target = ai._find_move_target(soldier, engine)
+    assert target != unreachable
+    assert target in engine.unit_system.get_reachable_tiles(soldier, engine.map_tiles)
 
 
 def test_save_system():

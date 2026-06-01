@@ -127,17 +127,7 @@ class SimpleAI(AIPlayer):
     
     def _find_move_target(self, unit, engine: GameEngine) -> Optional[HexCoord]:
         """为单位寻找移动目标"""
-        # 获取相邻地块
-        neighbors = unit.position.neighbors()
-        
-        # 过滤有效目标
-        valid_targets = []
-        for coord in neighbors:
-            tile = engine.map_tiles.get(coord)
-            if tile and tile.terrain_type.value == "land":
-                # 距离检查
-                if unit.position.distance_to(coord) <= unit.movement_points:
-                    valid_targets.append(coord)
+        valid_targets = engine.unit_system.get_reachable_tiles(unit, engine.map_tiles)
         
         if not valid_targets:
             return None
@@ -172,11 +162,11 @@ class AggressiveAI(SimpleAI):
         if unit.unit_type != UnitType.SOLDIER:
             return super()._find_move_target(unit, engine)
         
-        # 士兵优先寻找敌方目标
-        neighbors = unit.position.neighbors()
+        # 士兵优先寻找真实可达的敌方目标
+        reachable_tiles = engine.unit_system.get_reachable_tiles(unit, engine.map_tiles)
         
         # 寻找敌方单位或领土
-        for coord in neighbors:
+        for coord in reachable_tiles:
             tile = engine.map_tiles.get(coord)
             if tile and tile.terrain_type.value == "land":
                 # 检查是否有敌方单位
