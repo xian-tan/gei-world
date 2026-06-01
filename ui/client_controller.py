@@ -95,7 +95,7 @@ class UIClient:
     
     def _notify_action_result(self, result, actor_name: str = None):
         """展示结构化行动结果，优先显示战斗/攻城等关键事件。"""
-        priority_types = {"combat_resolved", "city_captured", "game_over"}
+        priority_types = {"combat_resolved", "city_under_siege", "city_captured", "game_over"}
         has_priority_event = any(event.event_type in priority_types for event in result.events)
         messages = []
         
@@ -132,6 +132,8 @@ class UIClient:
             return f"战斗结束：消灭 {destroyed_count} 个单位"
         if event.event_type == "unit_destroyed":
             return "单位被消灭"
+        if event.event_type == "city_under_siege":
+            return event.message or "攻城集结中"
         if event.event_type == "city_captured":
             return event.message or "城市被占领"
         if event.event_type == "game_over":
