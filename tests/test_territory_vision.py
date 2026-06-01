@@ -89,6 +89,45 @@ def test_territory_vision():
         traceback.print_exc()
         raise
 
+def test_explored_tiles_keep_history_after_visibility_changes():
+    """测试已探索地块会保留历史，而不是等同当前视野"""
+    from src.systems.vision_system import VisionSystem
+    from src.systems.map_system import MapSystem
+    from src.models import Player, Unit, UnitType, HexCoord, TerrainType
+
+    vision_system = VisionSystem()
+    map_system = MapSystem()
+    map_tiles = map_system.generate_map(seed=12345)
+    for tile in map_tiles.values():
+        tile.terrain_type = TerrainType.LAND
+
+    player = Player(id="test", name="测试玩家", gold=100)
+    unit = Unit(
+        id="unit_1",
+        owner=player,
+        position=HexCoord(0, 0),
+        unit_type=UnitType.SETTLER,
+        movement_points=1,
+        max_movement_points=1,
+        vision_range=1
+    )
+    player.units.append(unit)
+    vision_system.set_players([player])
+
+    vision_system.update_player_vision(player, map_tiles)
+    first_visible = set(player.vision_tiles)
+    self_check_coord = HexCoord(0, 0)
+    assert self_check_coord in first_visible
+
+    unit.position = HexCoord(4, 0)
+    vision_system.update_player_vision(player, map_tiles)
+
+    assert self_check_coord not in player.vision_tiles
+    assert self_check_coord in player.explored_tiles
+    assert first_visible.issubset(player.explored_tiles)
+    assert vision_system.get_explored_tiles(player.id).issuperset(first_visible)
+
+
 def test_territory_vision_detailed():
     """详细测试领土视野"""
     print("\n=== 详细领土视野测试 ===")

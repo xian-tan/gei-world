@@ -110,6 +110,7 @@ class Player:
     cities: List[City] = None
     units: List[Unit] = None
     vision_tiles: Set[HexCoord] = None
+    explored_tiles: Set[HexCoord] = None
     
     def __post_init__(self):
         if not self.id:
@@ -120,6 +121,8 @@ class Player:
             self.units = []
         if self.vision_tiles is None:
             self.vision_tiles = set()
+        if self.explored_tiles is None:
+            self.explored_tiles = set()
     
     def __hash__(self):
         """使Player对象可哈希，基于ID"""

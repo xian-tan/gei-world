@@ -33,6 +33,7 @@ class VisionSystem:
             visible_tiles.update(unit_vision)
         
         player.vision_tiles = visible_tiles
+        player.explored_tiles.update(visible_tiles)
     
     def get_unit_vision(self, unit: Unit, map_tiles: dict) -> Set[HexCoord]:
         """获取单位视野范围"""
@@ -104,10 +105,13 @@ class VisionSystem:
             return getattr(player_or_id, 'vision_tiles', set()).copy()
     
     def get_explored_tiles(self, player_or_id) -> Set[HexCoord]:
-        """获取玩家已探索的地块(简化实现：假设可见地块即为已探索)"""
-        # 简化实现：假设所有可见地块都是已探索的
-        # 在更复杂的实现中，这里应该维护一个永久的已探索地块集合
-        return self.get_visible_tiles(player_or_id)
+        """获取玩家已探索的地块。"""
+        if isinstance(player_or_id, str):
+            for player in self.all_players:
+                if player.id == player_or_id:
+                    return getattr(player, 'explored_tiles', set()).copy()
+            return set()
+        return getattr(player_or_id, 'explored_tiles', set()).copy()
     
     def has_line_of_sight(self, start: HexCoord, end: HexCoord, map_tiles: dict) -> bool:
         """检查两点间是否有视线（简单实现）"""

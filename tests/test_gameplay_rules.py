@@ -340,6 +340,7 @@ class TestGameplayRules(unittest.TestCase):
         self.assertEqual(loaded_player1.cities[0].center_tile, city.center_tile)
         self.assertIs(loaded.map_tiles[city.center_tile].city, loaded_player1.cities[0])
         self.assertEqual(loaded.ai_player_configs, engine.ai_player_configs)
+        self.assertTrue(player1.explored_tiles.issubset(loaded_player1.explored_tiles))
 
 
 if __name__ == "__main__":

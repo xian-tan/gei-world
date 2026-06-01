@@ -125,7 +125,11 @@ class GameSaveSystem:
                 "name": player.name,
                 "gold": player.gold,
                 "cities": [self._serialize_city(city) for city in player.cities],
-                "units": [self._serialize_unit(unit) for unit in player.units]
+                "units": [self._serialize_unit(unit) for unit in player.units],
+                "explored_tiles": [
+                    f"{coord.q},{coord.r}"
+                    for coord in getattr(player, "explored_tiles", set())
+                ]
             }
             players_data.append(player_data)
         
@@ -187,7 +191,11 @@ class GameSaveSystem:
                 player = Player(
                     id=player_data["id"],
                     name=player_data["name"],
-                    gold=player_data["gold"]
+                    gold=player_data["gold"],
+                    explored_tiles={
+                        self._parse_coord(coord_text)
+                        for coord_text in player_data.get("explored_tiles", [])
+                    }
                 )
                 players.append(player)
                 player_by_id[player.id] = player
@@ -271,7 +279,9 @@ class GameSaveSystem:
             
             engine.vision_system.set_players(players)
             for player in players:
+                saved_explored_tiles = set(player.explored_tiles)
                 engine.vision_system.update_player_vision(player, map_tiles)
+                player.explored_tiles.update(saved_explored_tiles)
             
             return engine
             
