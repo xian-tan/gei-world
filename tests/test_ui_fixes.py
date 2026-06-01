@@ -20,7 +20,8 @@ def test_ui_fixes():
         # 测试导入
         from ui.client_controller import UIClient
         from ui.font_manager import get_font_manager
-        from src.models import HexCoord, UnitType
+        from ui.systems.ui_system import UISystem
+        from src.models import HexCoord, UnitType, Player
         
         print("✓ 所有模块导入成功")
         
@@ -34,6 +35,18 @@ def test_ui_fixes():
         coord2 = HexCoord(1, 0)
         distance = coord1.distance_to(coord2)
         print(f"✓ 六边形距离计算: {distance}")
+        
+        # 测试游戏结束面板渲染
+        ui_system = UISystem(800, 600)
+        surface = pygame.Surface((800, 600))
+        winner = Player(id="player_1", name="测试玩家", gold=100)
+        ui_system.render(surface, {
+            'current_player': winner,
+            'turn_number': 1,
+            'game_over': True,
+            'winner': winner
+        })
+        print("✓ 游戏结束面板渲染成功")
         
         print("\n=== 所有测试通过 ===")
         print("可以运行 'python ui_game.py' 启动UI游戏")

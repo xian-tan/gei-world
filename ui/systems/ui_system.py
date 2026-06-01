@@ -12,6 +12,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.insert(0, project_root)
 
+from src.config import UNIT_CONFIG
 from src.models import Player, City, Unit, UnitType
 from ui.ui_config import COLORS, FONT_SIZE_SMALL, FONT_SIZE_MEDIUM, FONT_SIZE_LARGE
 from ui.font_manager import get_font_manager
@@ -62,6 +63,9 @@ class UISystem:
         # 渲染回合信息
         self._render_turn_info(surface, game_state)
         self._render_message_log(surface)
+        
+        if game_state.get('game_over'):
+            self._render_game_over_panel(surface, game_state)
     
     def _render_info_panel(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染信息面板"""
@@ -167,7 +171,7 @@ class UISystem:
         y_offset += 30
         
         # 移民按钮
-        settler_cost = 50  # 假设成本
+        settler_cost = UNIT_CONFIG["settler_cost"]
         settler_text = f"移民 ({settler_cost}金币)"
         settler_enabled = city.owner.gold >= settler_cost
         settler_button = Button(
@@ -179,7 +183,7 @@ class UISystem:
         self._draw_button(surface, settler_button)
         
         # 士兵按钮
-        soldier_cost = 30  # 假设成本
+        soldier_cost = UNIT_CONFIG["soldier_cost"]
         soldier_text = f"士兵 ({soldier_cost}金币)"
         soldier_enabled = city.owner.gold >= soldier_cost
         soldier_button = Button(
@@ -236,6 +240,30 @@ class UISystem:
             text = self.font_manager.render_text(message, 'small', COLORS['DARK_GRAY'])
             surface.blit(text, (panel_x + 10, y_offset))
             y_offset += 18
+    
+    def _render_game_over_panel(self, surface: pygame.Surface, game_state: Dict[str, Any]):
+        """渲染游戏结束面板。"""
+        panel_width = 360
+        panel_height = 160
+        panel_x = (self.screen_width - panel_width) // 2
+        panel_y = 80
+        panel_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
+        pygame.draw.rect(surface, COLORS['WHITE'], panel_rect)
+        pygame.draw.rect(surface, COLORS['BLACK'], panel_rect, 3)
+        
+        title = self.font_manager.render_text("游戏结束", 'large', COLORS['BLACK'])
+        title_rect = title.get_rect(center=(panel_x + panel_width // 2, panel_y + 40))
+        surface.blit(title, title_rect)
+        
+        winner = game_state.get('winner')
+        winner_name = winner.name if winner else "无"
+        winner_text = self.font_manager.render_text(f"获胜者：{winner_name}", 'medium', COLORS['BLACK'])
+        winner_rect = winner_text.get_rect(center=(panel_x + panel_width // 2, panel_y + 85))
+        surface.blit(winner_text, winner_rect)
+        
+        hint = self.font_manager.render_text("按 ESC 退出", 'small', COLORS['DARK_GRAY'])
+        hint_rect = hint.get_rect(center=(panel_x + panel_width // 2, panel_y + 125))
+        surface.blit(hint, hint_rect)
     
     def _render_turn_info(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染回合信息"""
