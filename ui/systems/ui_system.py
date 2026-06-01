@@ -92,14 +92,14 @@ class UISystem:
             y_offset += 25
             
             # 金币
-            text = self.font_manager.render_text(f"💰 金币: {current_player.gold}", 
+            text = self.font_manager.render_text(f"金币: {current_player.gold}", 
                                                 'small', COLORS['BLACK'])
             surface.blit(text, (panel_x + 10, y_offset))
             y_offset += 20
             
             # 城市数量
             city_count = len(current_player.cities)
-            text = self.font_manager.render_text(f"🏙️ 城市: {city_count}", 
+            text = self.font_manager.render_text(f"城市: {city_count}", 
                                                 'small', COLORS['BLACK'])
             surface.blit(text, (panel_x + 10, y_offset))
             y_offset += 20
@@ -111,7 +111,7 @@ class UISystem:
                 unit_counts[unit_type] = unit_counts.get(unit_type, 0) + 1
             
             for unit_type, count in unit_counts.items():
-                text = self.font_manager.render_text(f"👥 {unit_type}: {count}", 
+                text = self.font_manager.render_text(f"单位 {unit_type}: {count}", 
                                                     'small', COLORS['BLACK'])
                 surface.blit(text, (panel_x + 10, y_offset))
                 y_offset += 20

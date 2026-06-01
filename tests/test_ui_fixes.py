@@ -30,7 +30,11 @@ def test_ui_fixes():
         
         # 测试字体管理器
         font_manager = get_font_manager()
+        assert font_manager.chinese_font_path and os.path.exists(font_manager.chinese_font_path)
+        chinese_metrics = font_manager.get_font('medium').metrics("测试中文")
+        assert all(metric is not None for metric in chinese_metrics)
         test_text = font_manager.render_text("测试中文", 'medium', (255, 255, 255))
+        assert test_text.get_width() > 0 and test_text.get_height() > 0
         print("✓ 中文字体渲染成功")
         
         # 测试六边形坐标

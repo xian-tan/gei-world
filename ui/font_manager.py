@@ -25,6 +25,22 @@ class FontManager:
                 print(f"找到中文字体: {font_path}")
                 return font_path
         
+        font_names = [
+            "PingFang SC",
+            "STHeiti",
+            "Hiragino Sans GB",
+            "Songti SC",
+            "Microsoft YaHei",
+            "SimHei",
+            "Noto Sans CJK SC",
+            "WenQuanYi Zen Hei",
+        ]
+        for font_name in font_names:
+            matched_path = pygame.font.match_font(font_name)
+            if matched_path and os.path.exists(matched_path):
+                print(f"找到系统中文字体: {font_name} -> {matched_path}")
+                return matched_path
+        
         print("警告: 未找到中文字体，将使用默认字体")
         return None
     

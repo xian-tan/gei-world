@@ -56,8 +56,17 @@ FONT_SIZE_LARGE = 24
 
 # 中文字体路径
 CHINESE_FONTS = [
-    "C:/Windows/Fonts/simsun.ttc",      # 宋体
+    # macOS
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/System/Library/Fonts/STHeiti Light.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/System/Library/Fonts/Supplemental/Songti.ttc",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/System/Library/Fonts/PingFang.ttc",
+    
+    # Windows
     "C:/Windows/Fonts/msyh.ttc",        # 微软雅黑
+    "C:/Windows/Fonts/simsun.ttc",      # 宋体
     "C:/Windows/Fonts/simhei.ttf",      # 黑体
     "C:/Windows/Fonts/simkai.ttf",      # 楷体
     "C:/Windows/Fonts/simsun.ttf",      # 宋体(备选)
