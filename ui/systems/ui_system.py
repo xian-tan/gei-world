@@ -72,7 +72,7 @@ class UISystem:
         panel_x = self.screen_width - 250
         panel_y = 10
         panel_width = 240
-        panel_height = 300  # 增加高度以显示更多信息
+        panel_height = 430  # 增加高度以显示更多信息和选择详情
         
         # 背景
         panel_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
@@ -115,6 +115,8 @@ class UISystem:
                 surface.blit(text, (panel_x + 10, y_offset))
                 y_offset += 20
             
+            y_offset = self._render_selection_info(surface, game_state, panel_x, y_offset + 8)
+            
             # 添加控制提示
             y_offset += 10
             help_texts = [
@@ -130,6 +132,40 @@ class UISystem:
                 text = self.font_manager.render_text(help_text, 'small', COLORS['DARK_GRAY'])
                 surface.blit(text, (panel_x + 10, y_offset))
                 y_offset += 16
+    
+    def _render_selection_info(self, surface: pygame.Surface, game_state: Dict[str, Any],
+                               panel_x: int, y_offset: int) -> int:
+        """渲染当前选中对象详情。"""
+        selected_coord = game_state.get('selected_coord')
+        selected_tile = game_state.get('selected_tile')
+        selected_unit = game_state.get('selected_unit')
+        selected_city = game_state.get('selected_city')
+        
+        if not selected_coord and not selected_unit and not selected_city:
+            return y_offset
+        
+        lines = ["=== 选择详情 ==="]
+        if selected_coord:
+            lines.append(f"坐标: ({selected_coord.q}, {selected_coord.r})")
+        if selected_tile:
+            lines.append(f"地形: {selected_tile.terrain_type.value}")
+            owner_name = selected_tile.owner.name if selected_tile.owner else "无"
+            lines.append(f"归属: {owner_name}")
+        if selected_unit:
+            lines.append(f"单位: {selected_unit.unit_type.value}")
+            lines.append(f"移动力: {selected_unit.movement_points}/{selected_unit.max_movement_points}")
+            lines.append(f"视野: {selected_unit.vision_range}")
+        if selected_city:
+            lines.append(f"城市: {selected_city.owner.name}")
+            lines.append(f"中心: ({selected_city.center_tile.q}, {selected_city.center_tile.r})")
+            lines.append(f"领土: {len(selected_city.territory_tiles)}")
+            lines.append("生产: 移民/士兵")
+        
+        for line in lines[:9]:
+            text = self.font_manager.render_text(line, 'small', COLORS['BLACK'])
+            surface.blit(text, (panel_x + 10, y_offset))
+            y_offset += 16
+        return y_offset
     
     def _render_buttons(self, surface: pygame.Surface):
         """渲染按钮"""

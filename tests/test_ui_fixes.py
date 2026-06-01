@@ -22,7 +22,7 @@ def test_ui_fixes():
         from ui.client_controller import UIClient
         from ui.font_manager import get_font_manager
         from ui.systems.ui_system import UISystem
-        from src.models import HexCoord, UnitType, Player, ActionEvent, ActionResult
+        from src.models import HexCoord, UnitType, Player, ActionEvent, ActionResult, Tile, TerrainType, Unit, City
         from src.systems.save_system import GameSaveSystem
         
         print("✓ 所有模块导入成功")
@@ -42,13 +42,34 @@ def test_ui_fixes():
         ui_system = UISystem(800, 600)
         surface = pygame.Surface((800, 600))
         winner = Player(id="player_1", name="测试玩家", gold=100)
+        selected_coord = HexCoord(0, 0)
+        selected_tile = Tile(coord=selected_coord, terrain_type=TerrainType.LAND, owner=winner)
+        selected_unit = Unit(
+            id="unit_1",
+            owner=winner,
+            position=selected_coord,
+            unit_type=UnitType.SOLDIER,
+            movement_points=1,
+            max_movement_points=2,
+            vision_range=2
+        )
+        selected_city = City(
+            id="city_1",
+            owner=winner,
+            center_tile=selected_coord,
+            territory_tiles={selected_coord}
+        )
         ui_system.render(surface, {
             'current_player': winner,
             'turn_number': 1,
             'game_over': True,
-            'winner': winner
+            'winner': winner,
+            'selected_coord': selected_coord,
+            'selected_tile': selected_tile,
+            'selected_unit': selected_unit,
+            'selected_city': selected_city
         })
-        print("✓ 游戏结束面板渲染成功")
+        print("✓ 游戏结束面板和选择详情渲染成功")
         
         # 测试可达地块高亮状态
         from ui.systems.render_system import RenderSystem

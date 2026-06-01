@@ -290,11 +290,20 @@ class UIClient:
     def _get_game_state(self) -> Dict[str, Any]:
         """获取游戏状态快照"""
         current_player = self.game_engine.get_current_player()
+        selected_coord = self.render_system.selected_tile
+        selected_tile = self.game_engine.map_tiles.get(selected_coord) if selected_coord else None
+        selected_unit = self._find_unit_by_id(self.input_system.get_selected_unit_id()) if self.input_system.is_unit_selected() else None
+        selected_city = self.ui_system.selected_city if self.ui_system.show_city_panel else None
+        
         return {
             'current_player': current_player,
             'turn_number': self.game_engine.turn_system.turn_number,
             'game_over': self.game_engine.game_over,
-            'winner': self.game_engine.winner
+            'winner': self.game_engine.winner,
+            'selected_coord': selected_coord,
+            'selected_tile': selected_tile,
+            'selected_unit': selected_unit,
+            'selected_city': selected_city
         }
     
     def _get_tile_at_screen_pos(self, screen_x: int, screen_y: int) -> Optional[HexCoord]:
