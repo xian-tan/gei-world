@@ -1,6 +1,13 @@
 """
 简单的命令行游戏演示
 """
+import os
+import sys
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from src.game_engine import GameEngine
 from src.models import GameAction, ActionType, UnitType
 

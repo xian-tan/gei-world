@@ -172,7 +172,7 @@ def test_ui_fixes():
         print("✓ UI 默认存档加载成功")
         
         print("\n=== 所有测试通过 ===")
-        print("可以运行 'python ui_game.py' 启动UI游戏")
+        print("可以运行 'python scripts/ui_game.py' 启动UI游戏")
         print("\n游戏控制:")
         print("- 按 SPACE 开始游戏")
         print("- 左键点击选择单位或城市")

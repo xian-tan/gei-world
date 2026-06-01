@@ -2,7 +2,14 @@
 交互式游戏控制器
 提供更好的命令行界面
 """
+import os
+import sys
 from typing import List, Optional
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from src.game_engine import GameEngine
 from src.models import GameAction, ActionType, UnitType, HexCoord
 from src.utils import get_player_statistics, format_coordinates

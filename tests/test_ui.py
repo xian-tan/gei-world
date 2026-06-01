@@ -141,4 +141,4 @@ if __name__ == "__main__":
     test_basic_ui_functionality()
     test_hex_renderer()
     print(f"\n🎉 UI系统基本功能正常！")
-    print("现在可以运行 'python ui_game.py' 来启动完整的UI游戏")
+    print("现在可以运行 'python scripts/ui_game.py' 来启动完整的UI游戏")

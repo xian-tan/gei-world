@@ -27,3 +27,6 @@ dist/
 # Logs/temp
 *.log
 *.tmp
+
+# Local game saves
+saves/*.json

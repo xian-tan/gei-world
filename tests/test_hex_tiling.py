@@ -112,6 +112,6 @@ if __name__ == "__main__":
     
     if success2:
         print(f"\n🎉 六边形拼接测试完成")
-        print("运行UI游戏查看实际效果: python ui_demo.py")
+        print("运行UI游戏查看实际效果: python scripts/ui_demo.py")
     else:
         print(f"\n❌ 拼接测试中发现问题")

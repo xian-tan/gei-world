@@ -22,8 +22,9 @@ def main():
     print("- 鼠标拖拽: 移动地图")
     print("- 滚轮: 缩放地图")
     print("- WASD/方向键: 移动地图")
-    print("- ESC: 取消选择/退出")
-    print("- SPACE: 开始游戏(开始界面)")
+    print("- 开始界面: SPACE 新游戏 / L 加载 / ESC 退出")
+    print("- 游戏结束: R 重新开始 / ESC 退出")
+    print("- ESC: 游戏中取消选择或退出")
     print()
     
     try:

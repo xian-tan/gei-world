@@ -201,4 +201,4 @@ if __name__ == "__main__":
     test_territory_vision_detailed()
     print(f"\n🎉 领土视野功能测试成功!")
     print("现在每个领土地块都提供1格视野范围")
-    print("可以运行UI游戏查看效果: python ui_demo.py")
+    print("可以运行UI游戏查看效果: python scripts/ui_demo.py")
