@@ -17,6 +17,7 @@ class TurnSystem:
         """初始化回合系统"""
         self.players = players
         self.current_turn = 1
+        self.turn_number = 1
         self.current_player_index = 0
     
     def get_current_player(self) -> Player:
@@ -55,14 +56,17 @@ class TurnSystem:
     
     def is_game_over(self) -> bool:
         """检查游戏是否结束"""
-        # 简单实现：如果只剩一个玩家有城市，游戏结束
-        players_with_cities = [p for p in self.players if p.cities]
-        return len(players_with_cities) <= 1
+        active_players = [p for p in self.players if self._player_has_assets(p)]
+        return len(active_players) <= 1
     
     def get_winner(self) -> Player:
         """获取胜利者"""
-        players_with_cities = [p for p in self.players if p.cities]
-        return players_with_cities[0] if len(players_with_cities) == 1 else None
+        active_players = [p for p in self.players if self._player_has_assets(p)]
+        return active_players[0] if len(active_players) == 1 else None
+    
+    def _player_has_assets(self, player: Player) -> bool:
+        """玩家仍有城市或单位时，尚未被淘汰。"""
+        return bool(player.cities or player.units)
     
     def get_turn_info(self) -> dict:
         """获取回合信息"""

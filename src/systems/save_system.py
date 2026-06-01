@@ -162,20 +162,112 @@ class GameSaveSystem:
             "vision_range": unit.vision_range
         }
     
+    def _parse_coord(self, value: str) -> HexCoord:
+        """解析保存文件中的坐标。"""
+        q, r = value.split(",")
+        return HexCoord(int(q), int(r))
+    
     def _deserialize_game_state(self, game_data: Dict[str, Any]) -> Optional[GameEngine]:
         """反序列化游戏状态"""
-        # 这是一个简化的实现
-        # 实际项目中需要完整重建所有游戏对象
         try:
-            # 创建新的游戏引擎
             engine = GameEngine()
             
-            # 这里需要完整实现反序列化逻辑
-            # 当前只是一个占位符
-            print("注意：完整的游戏加载功能尚未实现")
-            print("这需要复杂的对象重建逻辑")
+            map_config = game_data.get("map_config", {})
+            engine.map_system.radius = map_config.get("radius", engine.map_system.radius)
+            engine.map_system.generator_type = map_config.get(
+                "generator_type", engine.map_system.generator_type
+            )
             
-            return None  # 暂时返回None，表示未实现
+            # 重建玩家
+            players = []
+            player_by_id = {}
+            for player_data in game_data.get("players", []):
+                player = Player(
+                    id=player_data["id"],
+                    name=player_data["name"],
+                    gold=player_data["gold"]
+                )
+                players.append(player)
+                player_by_id[player.id] = player
+            
+            # 重建地图
+            map_tiles = {}
+            for coord_text, tile_data in game_data.get("map_data", {}).items():
+                coord = self._parse_coord(coord_text)
+                owner_id = tile_data.get("owner_id")
+                tile = Tile(
+                    coord=coord,
+                    terrain_type=TerrainType(tile_data["terrain"]),
+                    owner=player_by_id.get(owner_id)
+                )
+                map_tiles[coord] = tile
+            
+            # 重建城市
+            for player_data in game_data.get("players", []):
+                owner = player_by_id[player_data["id"]]
+                for city_data in player_data.get("cities", []):
+                    center = self._parse_coord(city_data["center"])
+                    territory = {
+                        self._parse_coord(coord_text)
+                        for coord_text in city_data.get("territory", [])
+                    }
+                    city = City(
+                        id=city_data["id"],
+                        owner=owner,
+                        center_tile=center,
+                        territory_tiles=territory,
+                        production_queue=[
+                            UnitType(unit_type)
+                            for unit_type in city_data.get("production_queue", [])
+                        ]
+                    )
+                    owner.cities.append(city)
+                    engine.city_system.cities.append(city)
+                    
+                    center_tile = map_tiles.get(center)
+                    if center_tile:
+                        center_tile.city = city
+                    for coord in territory:
+                        tile = map_tiles.get(coord)
+                        if tile:
+                            tile.owner = owner
+            
+            # 重建单位
+            for player_data in game_data.get("players", []):
+                owner = player_by_id[player_data["id"]]
+                for unit_data in player_data.get("units", []):
+                    position = self._parse_coord(unit_data["position"])
+                    unit = Unit(
+                        id=unit_data["id"],
+                        owner=owner,
+                        position=position,
+                        unit_type=UnitType(unit_data["type"]),
+                        movement_points=unit_data["movement_points"],
+                        max_movement_points=unit_data["max_movement_points"],
+                        vision_range=unit_data["vision_range"]
+                    )
+                    owner.units.append(unit)
+                    engine.unit_system.units.append(unit)
+                    tile = map_tiles.get(position)
+                    if tile:
+                        tile.units.append(unit)
+            
+            engine.map_tiles = map_tiles
+            engine.map_system.tiles = map_tiles
+            engine.player_system.players = players
+            engine.turn_system.players = players
+            engine.turn_system.current_turn = game_data.get("turn", 1)
+            engine.turn_system.turn_number = game_data.get("turn", 1)
+            engine.turn_system.current_player_index = game_data.get("current_player_index", 0)
+            engine.game_started = game_data.get("game_started", True)
+            engine.game_over = game_data.get("game_over", False)
+            engine.winner = engine.turn_system.get_winner() if engine.game_over else None
+            
+            engine.vision_system.set_players(players)
+            for player in players:
+                engine.vision_system.update_player_vision(player, map_tiles)
+            
+            return engine
             
         except Exception as e:
             print(f"反序列化失败: {e}")

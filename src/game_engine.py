@@ -105,6 +105,7 @@ class GameEngine:
         if not unit:
             return False
         
+        acting_player = unit.owner
         target_coord = HexCoord(target[0], target[1])
         
         # 执行移动
@@ -113,12 +114,26 @@ class GameEngine:
             if self.combat_system.check_for_combat(target_coord, self.map_tiles):
                 self._resolve_combat_at_position(target_coord)
             
-            # 如果是士兵，尝试占领地块
-            if unit.unit_type == UnitType.SOLDIER:
+            target_tile = self.map_tiles.get(target_coord)
+            unit = self.unit_system.get_unit_by_id(unit_id)
+            if not unit or not target_tile or unit not in target_tile.units:
+                self._update_all_visions()
+                return True
+            
+            # 士兵进入敌方城市中心时触发攻城
+            if (unit.unit_type == UnitType.SOLDIER and target_tile.city and
+                    target_tile.city.owner != unit.owner):
+                attacking_units = [u for u in target_tile.units if u.owner == acting_player]
+                self.combat_system.attack_city(attacking_units, target_tile.city, self.map_tiles)
+                self._sync_unit_registry()
+                unit = self.unit_system.get_unit_by_id(unit_id)
+            
+            # 如果是士兵，尝试占领普通地块
+            if unit and unit.unit_type == UnitType.SOLDIER:
                 self.combat_system.occupy_tile(unit, target_coord, self.map_tiles)
             
             # 更新视野
-            self.vision_system.update_player_vision(unit.owner, self.map_tiles)
+            self._update_all_visions()
             return True
         
         return False
@@ -143,7 +158,7 @@ class GameEngine:
             self.unit_system.remove_unit(unit, self.map_tiles)
             
             # 更新视野
-            self.vision_system.update_player_vision(unit.owner, self.map_tiles)
+            self._update_all_visions()
             return True
         except ValueError:
             return False
@@ -167,7 +182,10 @@ class GameEngine:
         
         # 建造单位
         unit = self.city_system.build_unit(city, unit_type, self.unit_system, self.map_tiles)
-        return unit is not None
+        if unit:
+            self._update_all_visions()
+            return True
+        return False
     
     def _execute_end_turn(self, action: GameAction) -> bool:
         """执行结束回合行动"""
@@ -213,6 +231,21 @@ class GameEngine:
         
         # 更新地块单位
         tile.units = survivors_a + survivors_d
+        self._sync_unit_registry()
+    
+    def _sync_unit_registry(self):
+        """同步全局单位列表，移除已从玩家列表或地图上消失的单位。"""
+        live_units = []
+        for unit in self.unit_system.units:
+            tile = self.map_tiles.get(unit.position)
+            if unit in unit.owner.units and tile and unit in tile.units:
+                live_units.append(unit)
+        self.unit_system.units = live_units
+    
+    def _update_all_visions(self):
+        """刷新所有玩家视野。"""
+        for player in self.player_system.players:
+            self.vision_system.update_player_vision(player, self.map_tiles)
     
     def get_current_player(self) -> Optional[Player]:
         """获取当前行动玩家"""

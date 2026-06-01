@@ -34,6 +34,8 @@ class UIClient:
         
         # 游戏引擎
         self.game_engine = GameEngine()
+        self.ai_manager = AIManager()
+        self.save_system = GameSaveSystem()
         
         # UI系统
         self.render_system = RenderSystem()
@@ -72,6 +74,7 @@ class UIClient:
         """开始游戏"""
         if self.game_engine.initialize_game(player_names, map_seed):
             self.game_started = True
+            self._setup_ai_players()
             
             # 将摄像机移动到地图中心
             self._center_camera_on_map()
@@ -80,6 +83,39 @@ class UIClient:
             return True
         return False
     
+    def _setup_ai_players(self):
+        """将第一个玩家之外的玩家设为 AI。"""
+        self.ai_manager = AIManager()
+        for player in self.game_engine.player_system.players[1:]:
+            self.ai_manager.add_ai_player(player, "simple", "easy")
+    
+    def _process_ai_turns(self):
+        """自动处理连续 AI 回合，直到轮回人类玩家或游戏结束。"""
+        safety_limit = 30
+        actions_taken = 0
+        while not self.game_engine.game_over and actions_taken < safety_limit:
+            current_player = self.game_engine.get_current_player()
+            if not current_player or not self.ai_manager.is_ai_player(current_player.id):
+                break
+            
+            action = self.ai_manager.get_ai_action(current_player.id, self.game_engine)
+            if not action:
+                action = GameAction(
+                    player_id=current_player.id,
+                    action_type=ActionType.END_TURN,
+                    params={}
+                )
+            
+            success = self.game_engine.execute_action(action)
+            actions_taken += 1
+            if not success and action.action_type != ActionType.END_TURN:
+                self.game_engine.execute_action(GameAction(
+                    player_id=current_player.id,
+                    action_type=ActionType.END_TURN,
+                    params={}
+                ))
+                actions_taken += 1
+            
     def _center_camera_on_map(self):
         """将摄像机居中到地图"""
         if not self.game_engine.map_tiles:
@@ -383,20 +419,17 @@ class UIClient:
             # 清除选择状态
             self.input_system.set_mode(InputMode.NORMAL)
             self.ui_system._close_city_panel()
+            self._process_ai_turns()
     
     def _handle_save_game(self):
         """处理保存游戏"""
         try:
-            # 假设游戏引擎有保存功能
-            if hasattr(self.game_engine, 'save_system'):
-                filename = "ui_save.json"
-                success = self.game_engine.save_system.save_game(self.game_engine, filename)
-                if success:
-                    print(f"游戏已保存到 {filename}")
-                else:
-                    print("保存失败")
+            save_name = "ui_save"
+            success = self.save_system.save_game(self.game_engine, save_name)
+            if success:
+                print(f"游戏已保存到 {save_name}.json")
             else:
-                print("游戏引擎不支持保存功能")
+                print("保存失败")
         except Exception as e:
             print(f"保存游戏时出错: {e}")
     
