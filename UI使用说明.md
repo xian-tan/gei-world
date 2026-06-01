@@ -14,7 +14,7 @@ python ui_game.py
 python ui_demo.py
 
 # 方法3: 测试UI功能
-python test_ui_fixes.py
+python -m pytest tests/test_ui_fixes.py
 ```
 
 ### 🎯 界面布局

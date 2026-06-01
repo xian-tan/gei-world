@@ -76,7 +76,7 @@ GameEngine (主引擎)
 python -m pytest tests/ -v
 
 # 验证增强功能  
-python test_enhanced_features.py
+python -m pytest tests/test_enhanced_features.py
 ```
 
 ## 🎯 项目成就

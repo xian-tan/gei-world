@@ -169,7 +169,7 @@ gei-world/
 ├── demo.py               # 基础演示
 ├── interactive_game.py   # 交互式游戏
 ├── enhanced_demo.py      # 增强演示
-├── test_enhanced_features.py
+├── tests/test_enhanced_features.py
 ├── requirements.txt
 └── README.md
 ```
@@ -194,7 +194,7 @@ python enhanced_demo.py
 ### 运行测试
 ```bash
 python -m pytest tests/ -v
-python test_enhanced_features.py
+python -m pytest tests/test_enhanced_features.py
 ```
 
 ## ✨ 主要成就

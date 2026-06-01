@@ -1,6 +1,8 @@
 """
 非交互式测试增强功能
 """
+import tempfile
+
 from src.game_engine import GameEngine
 from src.systems.ai_system import AIManager, SimpleAI, AggressiveAI
 from src.systems.save_system import GameSaveSystem
@@ -67,26 +69,25 @@ def test_save_system():
     engine = GameEngine()
     engine.initialize_game(["测试玩家1", "测试玩家2"], map_seed=456)
     
-    # 创建保存系统
-    save_system = GameSaveSystem()
-    
-    # 测试保存
-    save_name = "test_save"
-    success = save_system.save_game(engine, save_name)
-    
-    if success:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # 创建保存系统
+        save_system = GameSaveSystem(tmp_dir)
+        
+        # 测试保存
+        save_name = "test_save"
+        success = save_system.save_game(engine, save_name)
+        assert success, "游戏保存失败"
         print("✓ 游戏保存成功")
         
         # 测试列出保存文件
         saves = save_system.list_saves()
         print(f"✓ 找到 {len(saves)} 个保存文件")
+        assert any(save['name'] == save_name for save in saves)
         
         for save in saves:
             if save['name'] == save_name:
                 print(f"  - {save['name']}: 回合{save['turn']}")
                 break
-    else:
-        print("✗ 游戏保存失败")
     
     print("✓ 保存系统测试完成")
 
