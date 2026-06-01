@@ -40,6 +40,12 @@ class UISystem:
         self.font_manager = get_font_manager()
         self.show_city_panel = False
         self.selected_city = None
+        self.messages: List[str] = []
+        
+    def add_message(self, message: str):
+        """添加界面消息。"""
+        self.messages.append(message)
+        self.messages = self.messages[-5:]
         
     def render(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染UI界面"""
@@ -55,6 +61,7 @@ class UISystem:
         
         # 渲染回合信息
         self._render_turn_info(surface, game_state)
+        self._render_message_log(surface)
     
     def _render_info_panel(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染信息面板"""
@@ -207,6 +214,28 @@ class UISystem:
         text = self.font_manager.render_text(button.text, 'small', text_color)
         text_rect = text.get_rect(center=button.rect.center)
         surface.blit(text, text_rect)
+    
+    def _render_message_log(self, surface: pygame.Surface):
+        """渲染底部消息栏。"""
+        if not self.messages:
+            return
+        
+        panel_x = 10
+        panel_y = self.screen_height - 120
+        panel_width = min(620, self.screen_width - 280)
+        panel_height = 105
+        panel_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
+        pygame.draw.rect(surface, COLORS['WHITE'], panel_rect)
+        pygame.draw.rect(surface, COLORS['BLACK'], panel_rect, 2)
+        
+        title = self.font_manager.render_text("消息", 'small', COLORS['BLACK'])
+        surface.blit(title, (panel_x + 10, panel_y + 8))
+        
+        y_offset = panel_y + 28
+        for message in self.messages[-4:]:
+            text = self.font_manager.render_text(message, 'small', COLORS['DARK_GRAY'])
+            surface.blit(text, (panel_x + 10, y_offset))
+            y_offset += 18
     
     def _render_turn_info(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染回合信息"""

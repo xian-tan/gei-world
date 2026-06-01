@@ -4,6 +4,7 @@
 """
 import sys
 import os
+import pygame
 
 # 添加项目根目录到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,6 +15,7 @@ def test_ui_fixes():
     print("=== UI修复测试 ===")
     
     try:
+        pygame.init()
         # 测试导入
         from ui.client_controller import UIClient
         from ui.font_manager import get_font_manager
@@ -43,13 +45,11 @@ def test_ui_fixes():
         print("- 滚轮缩放")
         print("- ESC 取消选择或退出")
         
-        return True
-        
     except Exception as e:
         print(f"✗ 测试失败: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 if __name__ == "__main__":

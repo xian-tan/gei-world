@@ -33,8 +33,7 @@ def test_basic_ui_functionality():
         if success:
             print("✓ 游戏初始化成功")
         else:
-            print("✗ 游戏初始化失败")
-            return False
+            raise AssertionError("游戏初始化失败")
         
         # 测试基本状态获取
         print("3. 测试游戏状态获取...")
@@ -43,8 +42,7 @@ def test_basic_ui_functionality():
         if game_state and game_state['current_player']:
             print(f"✓ 游戏状态获取成功，当前玩家: {game_state['current_player'].name}")
         else:
-            print("✗ 游戏状态获取失败")
-            return False
+            raise AssertionError("游戏状态获取失败")
         
         # 测试六边形坐标转换
         print("4. 测试六边形坐标转换...")
@@ -64,20 +62,16 @@ def test_basic_ui_functionality():
         if client.render_system and client.camera_system:
             print("✓ 渲染系统和摄像机系统初始化成功")
         else:
-            print("✗ 渲染系统初始化失败")
-            return False
+            raise AssertionError("渲染系统初始化失败")
         
         print("\n=== 所有基本功能测试通过 ===")
-        return True
         
     except Exception as e:
         print(f"✗ UI测试失败: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
     
-    finally:
-        pygame.quit()
 
 
 def test_hex_renderer():
@@ -102,11 +96,7 @@ def test_hex_renderer():
 
 
 if __name__ == "__main__":
-    success = test_basic_ui_functionality()
+    test_basic_ui_functionality()
     test_hex_renderer()
-    
-    if success:
-        print(f"\n🎉 UI系统基本功能正常！")
-        print("现在可以运行 'python ui_game.py' 来启动完整的UI游戏")
-    else:
-        print(f"\n❌ UI系统存在问题，请检查错误信息")
+    print(f"\n🎉 UI系统基本功能正常！")
+    print("现在可以运行 'python ui_game.py' 来启动完整的UI游戏")

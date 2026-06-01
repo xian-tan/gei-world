@@ -12,6 +12,8 @@ class FontManager:
     """字体管理器"""
     
     def __init__(self):
+        if not pygame.font.get_init():
+            pygame.font.init()
         self.fonts = {}
         self.chinese_font_path = self._find_chinese_font()
         self._init_fonts()
@@ -71,6 +73,6 @@ _font_manager = None
 def get_font_manager() -> FontManager:
     """获取全局字体管理器实例"""
     global _font_manager
-    if _font_manager is None:
+    if _font_manager is None or not pygame.font.get_init():
         _font_manager = FontManager()
     return _font_manager

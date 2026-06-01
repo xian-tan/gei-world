@@ -64,24 +64,20 @@ def test_hex_tiling():
         row_0_y = HexRenderer.hex_to_pixel(0, 0)[1]
         row_1_y = HexRenderer.hex_to_pixel(0, 1)[1]
         row_spacing = abs(row_1_y - row_0_y)
-        expected_row_spacing = HEX_RADIUS * 1.5  # 平顶式六边形行间距
+        expected_row_spacing = HEX_RADIUS * math.sqrt(3)  # 轴向坐标 r 方向中心距
         
         print(f"\n行间距测试:")
         print(f"  实际行间距: {row_spacing}")
         print(f"  期望行间距: {expected_row_spacing}")
         
-        if abs(row_spacing - expected_row_spacing) < 1:
-            print("  ✓ 行间距正确")
-        else:
-            print("  ✗ 行间距错误")
-        
-        return True
+        assert abs(row_spacing - expected_row_spacing) < 1, "行间距错误"
+        print("  ✓ 行间距正确")
         
     except Exception as e:
         print(f"✗ 拼接测试失败: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 def visualize_hex_grid():
     """可视化六边形网格布局"""
@@ -110,10 +106,10 @@ def visualize_hex_grid():
         return False
 
 if __name__ == "__main__":
-    success1 = test_hex_tiling()
+    test_hex_tiling()
     success2 = visualize_hex_grid()
     
-    if success1 and success2:
+    if success2:
         print(f"\n🎉 六边形拼接测试完成")
         print("运行UI游戏查看实际效果: python ui_demo.py")
     else:

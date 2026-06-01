@@ -13,6 +13,8 @@ sys.path.insert(0, project_root)
 
 from src.game_engine import GameEngine
 from src.models import GameAction, ActionType, HexCoord, UnitType, Player
+from src.systems.ai_system import AIManager
+from src.systems.save_system import GameSaveSystem
 from ui.systems.render_system import RenderSystem
 from ui.systems.input_system import InputSystem, InputMode
 from ui.systems.ui_system import UISystem
@@ -70,6 +72,11 @@ class UIClient:
             on_save_game=self._handle_save_game
         )
     
+    def _notify(self, message: str):
+        """同时输出控制台和界面消息。"""
+        print(message)
+        self.ui_system.add_message(message)
+    
     def start_game(self, player_names: list, map_seed: int = None):
         """开始游戏"""
         if self.game_engine.initialize_game(player_names, map_seed):
@@ -79,7 +86,7 @@ class UIClient:
             # 将摄像机移动到地图中心
             self._center_camera_on_map()
             
-            print(f"游戏开始！玩家: {', '.join(player_names)}")
+            self._notify(f"游戏开始！玩家: {', '.join(player_names)}")
             return True
         return False
     
@@ -259,14 +266,14 @@ class UIClient:
             unit = player_units[0]  # 选择第一个单位
             self.input_system.set_mode(InputMode.UNIT_SELECTED, unit.id)
             self.render_system.set_selected_unit(unit.id)
-            print(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})")
+            self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})")
         
         # 检查是否点击了自己的城市
         elif tile.city and tile.city.owner == current_player:
             self.input_system.set_mode(InputMode.CITY_SELECTED, tile.city.id)
             self.ui_system.show_city_panel_for(tile.city)
             self.render_system.clear_selected_unit()
-            print(f"选中城市")
+            self._notify("选中城市")
         
         else:
             # 取消选择
@@ -284,13 +291,13 @@ class UIClient:
         
         # 检查是否点击了同一个位置
         if tile.coord == unit.position:
-            print("单位已在该位置")
+            self._notify("单位已在该位置")
             return
         
         # 检查移动距离
         distance = unit.position.distance_to(tile.coord)
         if distance > unit.movement_points:
-            print(f"移动距离({distance})超过移动力({unit.movement_points})")
+            self._notify(f"移动距离({distance})超过移动力({unit.movement_points})")
             return
         
         # 移动单位到目标地块
@@ -302,9 +309,9 @@ class UIClient:
         
         success = self.game_engine.execute_action(action)
         if success:
-            print(f"单位移动到 ({tile.coord.q}, {tile.coord.r})")
+            self._notify(f"单位移动到 ({tile.coord.q}, {tile.coord.r})")
         else:
-            print("移动失败：可能是目标位置无效或被阻挡")
+            self._notify("移动失败：可能是目标位置无效或被阻挡")
         
         # 保持单位选中状态，允许连续移动
     
@@ -335,16 +342,16 @@ class UIClient:
             unit = self._find_unit_by_id(unit_id)
             
             if not unit:
-                print("未找到选中的单位")
+                self._notify("未找到选中的单位")
                 return
                 
             if unit.unit_type != UnitType.SETTLER:
-                print(f"只有移民可以建城，当前单位类型: {unit.unit_type.value}")
+                self._notify(f"只有移民可以建城，当前单位类型: {unit.unit_type.value}")
                 return
             
             # 检查单位是否在目标位置
             if unit.position != coord:
-                print(f"移民不在目标位置。移民位置: ({unit.position.q}, {unit.position.r}), 点击位置: ({coord.q}, {coord.r})")
+                self._notify(f"移民不在目标位置。移民位置: ({unit.position.q}, {unit.position.r}), 点击位置: ({coord.q}, {coord.r})")
                 return
                 
             action = GameAction(
@@ -353,14 +360,14 @@ class UIClient:
                 params={'unit_id': unit_id}
             )
             
-            print(f"尝试在 ({coord.q}, {coord.r}) 建立城市...")
+            self._notify(f"尝试在 ({coord.q}, {coord.r}) 建立城市...")
             success = self.game_engine.execute_action(action)
             if success:
-                print(f"成功在 ({coord.q}, {coord.r}) 建立城市！")
+                self._notify(f"成功在 ({coord.q}, {coord.r}) 建立城市！")
                 self.input_system.set_mode(InputMode.NORMAL)
                 self.render_system.clear_selected_unit()
             else:
-                print("建城失败：可能位置不合适或已有城市")
+                self._notify("建城失败：可能位置不合适或已有城市")
     
     def _handle_camera_move(self, dx: int, dy: int):
         """处理摄像机移动"""
@@ -399,9 +406,9 @@ class UIClient:
         
         success = self.game_engine.execute_action(action)
         if success:
-            print(f"建造 {unit_type.value}")
+            self._notify(f"建造 {unit_type.value}")
         else:
-            print("建造失败：资源不足或其他原因")
+            self._notify("建造失败：资源不足或其他原因")
     
     def _handle_end_turn(self):
         """处理结束回合"""
@@ -415,7 +422,7 @@ class UIClient:
         
         success = self.game_engine.execute_action(action)
         if success:
-            print(f"结束回合")
+            self._notify("结束回合")
             # 清除选择状态
             self.input_system.set_mode(InputMode.NORMAL)
             self.ui_system._close_city_panel()
@@ -427,11 +434,11 @@ class UIClient:
             save_name = "ui_save"
             success = self.save_system.save_game(self.game_engine, save_name)
             if success:
-                print(f"游戏已保存到 {save_name}.json")
+                self._notify(f"游戏已保存到 {save_name}.json")
             else:
-                print("保存失败")
+                self._notify("保存失败")
         except Exception as e:
-            print(f"保存游戏时出错: {e}")
+            self._notify(f"保存游戏时出错: {e}")
     
     def _find_unit_by_id(self, unit_id: str):
         """根据ID查找单位"""
