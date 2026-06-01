@@ -95,6 +95,34 @@ class MapSystem:
                 tiles.append(tile)
         return tiles
     
+    def are_coords_reachable(self, start: HexCoord, target: HexCoord,
+                             allow_ocean: bool = True) -> bool:
+        """检查两个坐标是否在当前地图中可达。"""
+        if start not in self.tiles or target not in self.tiles:
+            return False
+        if start == target:
+            return True
+        
+        visited = {start}
+        frontier = [start]
+        
+        while frontier:
+            current = frontier.pop(0)
+            for neighbor in current.neighbors():
+                if neighbor in visited:
+                    continue
+                tile = self.tiles.get(neighbor)
+                if not tile:
+                    continue
+                if not allow_ocean and tile.terrain_type != TerrainType.LAND:
+                    continue
+                if neighbor == target:
+                    return True
+                visited.add(neighbor)
+                frontier.append(neighbor)
+        
+        return False
+    
     def get_random_land_tile(self) -> Tile:
         """获取随机陆地地块"""
         land_tiles = [tile for tile in self.tiles.values() 

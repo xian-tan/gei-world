@@ -75,6 +75,17 @@ class TestGameEngine(unittest.TestCase):
         for index, coord in enumerate(spawn_positions):
             for other in spawn_positions[index + 1:]:
                 self.assertGreaterEqual(coord.distance_to(other), 2)
+    
+    def test_initial_spawn_tiles_are_reachable_by_land_or_sea(self):
+        """测试初始出生点允许经海路互相可达"""
+        engine = GameEngine()
+        success = engine.initialize_game(["玩家1", "玩家2", "玩家3", "玩家4"], map_seed=123)
+        self.assertTrue(success)
+        
+        spawn_positions = [player.units[0].position for player in engine.player_system.players]
+        for index, coord in enumerate(spawn_positions):
+            for other in spawn_positions[index + 1:]:
+                self.assertTrue(engine.map_system.are_coords_reachable(coord, other, allow_ocean=True))
 
 
 if __name__ == '__main__':
