@@ -147,7 +147,7 @@ class GameEngine:
         if self.unit_system.move_unit(unit, target_coord, self.map_tiles):
             # 检查是否需要战斗
             if self.combat_system.check_for_combat(target_coord, self.map_tiles):
-                self._resolve_combat_at_position(target_coord)
+                self._resolve_combat_at_position(target_coord, acting_player)
             
             target_tile = self.map_tiles.get(target_coord)
             unit = self.unit_system.get_unit_by_id(unit_id)
@@ -240,26 +240,17 @@ class GameEngine:
         
         return True
     
-    def _resolve_combat_at_position(self, position: HexCoord):
+    def _resolve_combat_at_position(self, position: HexCoord, attacking_player: Player):
         """解决指定位置的战斗"""
         tile = self.map_tiles.get(position)
         if not tile or len(tile.units) < 2:
             return
         
-        # 按玩家分组单位
-        player_units = {}
-        for unit in tile.units:
-            if unit.owner not in player_units:
-                player_units[unit.owner] = []
-            player_units[unit.owner].append(unit)
+        attacking_units = [unit for unit in tile.units if unit.owner == attacking_player]
+        defending_units = [unit for unit in tile.units if unit.owner != attacking_player]
         
-        if len(player_units) < 2:
+        if not attacking_units or not defending_units:
             return
-        
-        # 简单实现：取前两个玩家的单位进行战斗
-        players = list(player_units.keys())
-        attacking_units = player_units[players[0]]
-        defending_units = player_units[players[1]]
         
         # 解决战斗
         survivors_a, survivors_d = self.combat_system.resolve_combat(
@@ -342,6 +333,17 @@ class GameEngine:
         
         destroyed_unit_ids = before["unit_ids"] - current_unit_ids
         consumed_unit_id = action.params.get("unit_id") if action.action_type == ActionType.BUILD_CITY else None
+        combat_destroyed_unit_ids = {
+            unit_id for unit_id in destroyed_unit_ids
+            if unit_id != consumed_unit_id
+        }
+        if success and action.action_type == ActionType.MOVE_UNIT and combat_destroyed_unit_ids:
+            events.append(ActionEvent(
+                event_type="combat_resolved",
+                message=f"战斗结束，{len(combat_destroyed_unit_ids)} 个单位被消灭",
+                data={"destroyed_unit_ids": sorted(combat_destroyed_unit_ids)}
+            ))
+        
         for unit_id in sorted(destroyed_unit_ids):
             if unit_id == consumed_unit_id:
                 continue
@@ -381,7 +383,7 @@ class GameEngine:
         """生成人类可读的行动结果消息。"""
         if events:
             for event in reversed(events):
-                if event.event_type in {"game_over", "city_captured", "unit_destroyed"}:
+                if event.event_type in {"game_over", "city_captured", "combat_resolved", "unit_destroyed"}:
                     return event.message
         if not success:
             return "行动失败"

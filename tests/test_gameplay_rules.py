@@ -26,6 +26,40 @@ class TestGameplayRules(unittest.TestCase):
         self.assertEqual(result.message, "城市建立成功")
         self.assertEqual([event.event_type for event in result.events], ["city_built"])
 
+    def test_combat_result_reports_combat_event(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        attacker, defender = engine.player_system.players
+        for unit in list(attacker.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+        for unit in list(defender.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        start = HexCoord(0, 0)
+        target = HexCoord(1, 0)
+        engine.map_tiles[start].terrain_type = TerrainType.LAND
+        engine.map_tiles[target].terrain_type = TerrainType.LAND
+
+        attacking_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, start)
+        defending_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, defender, target)
+        engine.map_tiles[start].units.append(attacking_soldier)
+        engine.map_tiles[target].units.append(defending_soldier)
+        attacker.units.append(attacking_soldier)
+        defender.units.append(defending_soldier)
+
+        result = engine.execute_action_with_result(GameAction(
+            player_id=attacker.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": attacking_soldier.id, "target": [target.q, target.r]}
+        ))
+
+        self.assertTrue(result.success)
+        event_types = [event.event_type for event in result.events]
+        self.assertIn("combat_resolved", event_types)
+        self.assertIn("unit_destroyed", event_types)
+        self.assertEqual(len(engine.map_tiles[target].units), 0)
+
     def test_action_result_reports_city_capture_and_game_over_events(self):
         engine = GameEngine()
         self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
