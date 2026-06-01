@@ -34,6 +34,7 @@ class GameEngine:
         self.game_over = False
         self.winner = None
         self.map_tiles = {}
+        self.ai_player_configs = {}
     
     def initialize_game(self, player_names: List[str], map_seed: int = None) -> bool:
         """初始化游戏"""

@@ -139,7 +139,9 @@ class GameSaveSystem:
             "turn": engine.turn_system.current_turn,
             "current_player_index": engine.turn_system.current_player_index,
             "game_started": engine.game_started,
-            "game_over": engine.game_over
+            "game_over": engine.game_over,
+            "winner_id": engine.winner.id if engine.winner else None,
+            "ai_player_configs": getattr(engine, "ai_player_configs", {})
         }
     
     def _serialize_city(self, city: City) -> Dict[str, Any]:
@@ -261,7 +263,11 @@ class GameSaveSystem:
             engine.turn_system.current_player_index = game_data.get("current_player_index", 0)
             engine.game_started = game_data.get("game_started", True)
             engine.game_over = game_data.get("game_over", False)
-            engine.winner = engine.turn_system.get_winner() if engine.game_over else None
+            winner_id = game_data.get("winner_id")
+            engine.winner = player_by_id.get(winner_id) if winner_id else (
+                engine.turn_system.get_winner() if engine.game_over else None
+            )
+            engine.ai_player_configs = game_data.get("ai_player_configs", {})
             
             engine.vision_system.set_players(players)
             for player in players:

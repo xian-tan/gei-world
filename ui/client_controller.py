@@ -102,8 +102,13 @@ class UIClient:
     def _setup_ai_players(self):
         """将第一个玩家之外的玩家设为 AI。"""
         self.ai_manager = AIManager()
+        self.game_engine.ai_player_configs = {}
         for player in self.game_engine.player_system.players[1:]:
             self.ai_manager.add_ai_player(player, "simple", "easy")
+            self.game_engine.ai_player_configs[player.id] = {
+                "ai_type": "simple",
+                "difficulty": "easy"
+            }
     
     def _process_ai_turns(self):
         """自动处理连续 AI 回合，直到轮回人类玩家或游戏结束。"""

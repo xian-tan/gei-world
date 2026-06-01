@@ -25,8 +25,9 @@ class GameStateSerializer:
     @staticmethod
     def deserialize_game_state(data: str) -> GameState:
         """从JSON字符串反序列化游戏状态"""
-        # TODO: 实现完整的反序列化
-        pass
+        raise NotImplementedError(
+            "GameStateSerializer 仅用于轻量状态摘要；完整存档加载请使用 GameSaveSystem。"
+        )
 
 
 def format_coordinates(coord: HexCoord) -> str:

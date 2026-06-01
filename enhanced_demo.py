@@ -185,10 +185,11 @@ class EnhancedDemo:
                 loaded_engine = self.save_system.load_game(save_name)
                 
                 if loaded_engine:
-                    print("游戏载入成功！")
-                    # 这里可以继续游戏，但当前保存系统还未完全实现
+                    self.engine = loaded_engine
+                    print("游戏载入成功！可继续当前存档。")
+                    self.print_game_state()
                 else:
-                    print("载入失败（保存系统尚未完全实现）")
+                    print("载入失败，请检查保存文件是否完整")
             else:
                 print("无效选择")
         except ValueError:

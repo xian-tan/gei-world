@@ -249,9 +249,34 @@ class TestGameplayRules(unittest.TestCase):
         for coord in city.territory_tiles:
             self.assertEqual(engine.map_tiles[coord].owner, attacker)
 
+    def test_save_load_preserves_winner(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        player1, player2 = engine.player_system.players
+        for unit in list(player2.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+        self.assertTrue(engine.execute_action(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.END_TURN,
+            params={}
+        )))
+        self.assertTrue(engine.game_over)
+        self.assertEqual(engine.winner, player1)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            save_system = GameSaveSystem(tmp_dir)
+            self.assertTrue(save_system.save_game(engine, "winner"))
+            loaded = save_system.load_game("winner")
+
+        self.assertIsNotNone(loaded)
+        self.assertTrue(loaded.game_over)
+        self.assertEqual(loaded.winner.id, player1.id)
+
     def test_save_load_roundtrip_preserves_core_state(self):
         engine = GameEngine()
         self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=456))
+        engine.ai_player_configs = {"player_1": {"ai_type": "simple", "difficulty": "easy"}}
 
         player1 = engine.player_system.players[0]
         settler = player1.units[0]
@@ -285,6 +310,7 @@ class TestGameplayRules(unittest.TestCase):
         self.assertEqual(len(loaded_player1.units), len(player1.units))
         self.assertEqual(loaded_player1.cities[0].center_tile, city.center_tile)
         self.assertIs(loaded.map_tiles[city.center_tile].city, loaded_player1.cities[0])
+        self.assertEqual(loaded.ai_player_configs, engine.ai_player_configs)
 
 
 if __name__ == "__main__":
