@@ -4,6 +4,7 @@
 """
 import sys
 import os
+import tempfile
 import pygame
 
 # 添加项目根目录到路径
@@ -22,6 +23,7 @@ def test_ui_fixes():
         from ui.font_manager import get_font_manager
         from ui.systems.ui_system import UISystem
         from src.models import HexCoord, UnitType, Player
+        from src.systems.save_system import GameSaveSystem
         
         print("✓ 所有模块导入成功")
         
@@ -47,6 +49,20 @@ def test_ui_fixes():
             'winner': winner
         })
         print("✓ 游戏结束面板渲染成功")
+        
+        # 测试 UI 默认存档加载流程
+        client = UIClient()
+        assert client.start_game(["玩家1", "AI玩家"], 123)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            client.save_system = GameSaveSystem(tmp_dir)
+            assert client.save_system.save_game(client.game_engine, "ui_save")
+            client.game_engine = client.game_engine.__class__()
+            client.game_started = False
+            client._handle_load_game()
+            assert client.game_started
+            assert client.game_engine.player_system.players
+            assert client.ai_manager.is_ai_player("player_1")
+        print("✓ UI 默认存档加载成功")
         
         print("\n=== 所有测试通过 ===")
         print("可以运行 'python ui_game.py' 启动UI游戏")

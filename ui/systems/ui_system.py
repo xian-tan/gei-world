@@ -291,8 +291,18 @@ class UISystem:
         )
         self._draw_button(surface, save_button)
         
+        # 加载按钮
+        load_button = Button(
+            rect=pygame.Rect(210, 50, 80, 30),
+            text="加载",
+            callback=self._load_game,
+            color=COLORS['ORANGE'],
+            text_color=COLORS['WHITE']
+        )
+        self._draw_button(surface, load_button)
+        
         # 更新按钮列表
-        self.buttons = [end_turn_button, save_button]
+        self.buttons = [end_turn_button, save_button, load_button]
     
     def handle_click(self, pos: tuple) -> bool:
         """处理UI点击事件"""
@@ -336,8 +346,14 @@ class UISystem:
         if hasattr(self, 'on_save_game'):
             self.on_save_game()
     
+    def _load_game(self):
+        """加载游戏"""
+        if hasattr(self, 'on_load_game'):
+            self.on_load_game()
+    
     def set_callbacks(self, on_build_unit: Callable = None, 
-                     on_end_turn: Callable = None, on_save_game: Callable = None):
+                     on_end_turn: Callable = None, on_save_game: Callable = None,
+                     on_load_game: Callable = None):
         """设置回调函数"""
         if on_build_unit:
             self.on_build_unit = on_build_unit
@@ -345,3 +361,5 @@ class UISystem:
             self.on_end_turn = on_end_turn
         if on_save_game:
             self.on_save_game = on_save_game
+        if on_load_game:
+            self.on_load_game = on_load_game

@@ -69,7 +69,8 @@ class UIClient:
         self.ui_system.set_callbacks(
             on_build_unit=self._handle_build_unit,
             on_end_turn=self._handle_end_turn,
-            on_save_game=self._handle_save_game
+            on_save_game=self._handle_save_game,
+            on_load_game=self._handle_load_game
         )
     
     def _notify(self, message: str):
@@ -109,6 +110,18 @@ class UIClient:
                 "ai_type": "simple",
                 "difficulty": "easy"
             }
+    
+    def _restore_ai_players_from_engine(self):
+        """根据引擎中的 AI 配置重建 AI 管理器。"""
+        self.ai_manager = AIManager()
+        for player_id, config in getattr(self.game_engine, 'ai_player_configs', {}).items():
+            player = self.game_engine.player_system.get_player_by_id(player_id)
+            if player:
+                self.ai_manager.add_ai_player(
+                    player,
+                    config.get("ai_type", "simple"),
+                    config.get("difficulty", "easy")
+                )
     
     def _process_ai_turns(self):
         """自动处理连续 AI 回合，直到轮回人类玩家或游戏结束。"""
@@ -448,6 +461,27 @@ class UIClient:
                 self._notify("保存失败")
         except Exception as e:
             self._notify(f"保存游戏时出错: {e}")
+    
+    def _handle_load_game(self):
+        """处理加载游戏。"""
+        try:
+            save_name = "ui_save"
+            loaded_engine = self.save_system.load_game(save_name)
+            if not loaded_engine:
+                self._notify(f"加载失败：未找到 {save_name}.json")
+                return
+            
+            self.game_engine = loaded_engine
+            self.game_started = True
+            self._restore_ai_players_from_engine()
+            self.input_system.set_mode(InputMode.NORMAL)
+            self.ui_system._close_city_panel()
+            self.render_system.clear_selected_unit()
+            self._center_camera_on_map()
+            self._notify(f"已加载 {save_name}.json")
+            self._process_ai_turns()
+        except Exception as e:
+            self._notify(f"加载游戏时出错: {e}")
     
     def _find_unit_by_id(self, unit_id: str):
         """根据ID查找单位"""

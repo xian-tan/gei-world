@@ -189,6 +189,10 @@ class AIManager:
     def __init__(self):
         self.ai_players = {}
     
+    def clear(self):
+        """清空 AI 玩家。"""
+        self.ai_players.clear()
+    
     def add_ai_player(self, player: Player, ai_type: str = "simple", difficulty: str = "easy"):
         """添加AI玩家"""
         if ai_type == "simple":
