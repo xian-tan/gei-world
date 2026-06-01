@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from src.game_engine import GameEngine
-from src.models import ActionType, GameAction, UnitType, TerrainType
+from src.models import ActionType, GameAction, UnitType, TerrainType, HexCoord
 from src.systems.save_system import GameSaveSystem
 
 
@@ -60,6 +60,35 @@ class TestGameplayRules(unittest.TestCase):
         self.assertIn("city_captured", event_types)
         self.assertIn("game_over", event_types)
         self.assertEqual(result.message, f"游戏结束，获胜者：{attacker.name}")
+
+    def test_unit_cannot_jump_over_ocean_without_land_path(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        player1 = engine.player_system.players[0]
+        for unit in list(player1.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        start = HexCoord(0, 0)
+        blocker = HexCoord(1, 0)
+        target = HexCoord(2, 0)
+        self.assertIn(start, engine.map_tiles)
+        self.assertIn(target, engine.map_tiles)
+        self.assertIn(blocker, engine.map_tiles)
+        engine.map_tiles[start].terrain_type = TerrainType.LAND
+        engine.map_tiles[target].terrain_type = TerrainType.LAND
+        engine.map_tiles[blocker].terrain_type = TerrainType.OCEAN
+
+        soldier = engine.unit_system.create_unit(UnitType.SOLDIER, player1, start)
+        engine.map_tiles[start].units.append(soldier)
+        player1.units.append(soldier)
+
+        self.assertFalse(engine.execute_action(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": soldier.id, "target": [target.q, target.r]}
+        )))
+        self.assertEqual(soldier.position, start)
 
     def test_non_current_player_cannot_act(self):
         engine = GameEngine()

@@ -1,6 +1,7 @@
 """
 单位系统 - 负责单位创建、移动、管理
 """
+from collections import deque
 from typing import List, Optional
 from ..models import Unit, UnitType, Player, HexCoord, Tile
 from ..config import UNIT_CONFIG
@@ -58,13 +59,15 @@ class UnitSystem:
         if not target_tile:
             return False
         
-        # 检查移动距离
-        distance = unit.position.distance_to(target_position)
-        if distance > unit.movement_points:
+        # 检查目标是否为陆地
+        if target_tile.terrain_type.value == "ocean":
             return False
         
-        # 检查是否为陆地（简单检查，后续可扩展）
-        if target_tile.terrain_type.value == "ocean":
+        # 检查是否存在移动力内的陆地路径，避免跨海/跨障碍跳跃
+        path_distance = self._find_land_path_distance(
+            unit.position, target_position, unit.movement_points, map_tiles
+        )
+        if path_distance is None:
             return False
         
         # 执行移动
@@ -73,10 +76,38 @@ class UnitSystem:
             old_tile.units.remove(unit)
         
         unit.position = target_position
-        unit.movement_points -= distance
+        unit.movement_points -= path_distance
         target_tile.units.append(unit)
         
         return True
+    
+    def _find_land_path_distance(self, start: HexCoord, target: HexCoord,
+                                 max_distance: int, map_tiles: dict) -> Optional[int]:
+        """查找移动力范围内的陆地路径距离。"""
+        if start == target:
+            return 0
+        
+        queue = deque([(start, 0)])
+        visited = {start}
+        
+        while queue:
+            current, distance = queue.popleft()
+            if distance >= max_distance:
+                continue
+            
+            for neighbor in current.neighbors():
+                if neighbor in visited:
+                    continue
+                tile = map_tiles.get(neighbor)
+                if not tile or tile.terrain_type.value == "ocean":
+                    continue
+                next_distance = distance + 1
+                if neighbor == target:
+                    return next_distance
+                visited.add(neighbor)
+                queue.append((neighbor, next_distance))
+        
+        return None
     
     def restore_movement_points(self, player: Player):
         """恢复玩家所有单位的移动力"""
