@@ -22,7 +22,7 @@ def test_ui_fixes():
         from ui.client_controller import UIClient
         from ui.font_manager import get_font_manager
         from ui.systems.ui_system import UISystem
-        from src.models import HexCoord, UnitType, Player
+        from src.models import HexCoord, UnitType, Player, ActionEvent, ActionResult
         from src.systems.save_system import GameSaveSystem
         
         print("✓ 所有模块导入成功")
@@ -60,8 +60,22 @@ def test_ui_fixes():
         assert not render_system.reachable_tiles
         print("✓ 可达地块高亮状态正常")
         
-        # 测试 UI 默认存档加载流程
+        # 测试战斗详情消息格式化
         client = UIClient()
+        client._notify_action_result(ActionResult(
+            success=True,
+            message="单位移动成功",
+            events=[
+                ActionEvent("unit_moved", "单位移动成功"),
+                ActionEvent("combat_resolved", data={"destroyed_unit_ids": ["u1", "u2"]}),
+                ActionEvent("unit_destroyed", "单位被消灭", {"unit_id": "u1"})
+            ]
+        ))
+        assert "战斗结束：消灭 2 个单位" in client.ui_system.messages
+        assert "单位移动成功" not in client.ui_system.messages[-2:]
+        print("✓ 战斗详情消息格式化成功")
+        
+        # 测试 UI 默认存档加载流程
         assert client.start_game(["玩家1", "AI玩家"], 123)
         with tempfile.TemporaryDirectory() as tmp_dir:
             client.save_system = GameSaveSystem(tmp_dir)
