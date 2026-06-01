@@ -95,7 +95,65 @@ class TestGameplayRules(unittest.TestCase):
         self.assertIn("game_over", event_types)
         self.assertEqual(result.message, f"游戏结束，获胜者：{attacker.name}")
 
-    def test_unit_cannot_jump_over_ocean_without_land_path(self):
+    def test_units_can_embark_and_land_to_sea_consumes_all_movement(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        player1 = engine.player_system.players[0]
+        for unit in list(player1.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        start = HexCoord(0, 0)
+        ocean = HexCoord(1, 0)
+        engine.map_tiles[start].terrain_type = TerrainType.LAND
+        engine.map_tiles[ocean].terrain_type = TerrainType.OCEAN
+
+        settler = engine.unit_system.create_unit(UnitType.SETTLER, player1, start)
+        engine.map_tiles[start].units.append(settler)
+        player1.units.append(settler)
+
+        self.assertTrue(engine.execute_action(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": settler.id, "target": [ocean.q, ocean.r]}
+        )))
+        self.assertEqual(settler.position, ocean)
+        self.assertEqual(settler.movement_points, 0)
+
+    def test_sea_movement_is_halved(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        player1 = engine.player_system.players[0]
+        for unit in list(player1.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        start = HexCoord(0, 0)
+        adjacent_ocean = HexCoord(1, 0)
+        far_ocean = HexCoord(2, 0)
+        for coord in [start, adjacent_ocean, far_ocean]:
+            engine.map_tiles[coord].terrain_type = TerrainType.OCEAN
+
+        soldier = engine.unit_system.create_unit(UnitType.SOLDIER, player1, start)
+        engine.map_tiles[start].units.append(soldier)
+        player1.units.append(soldier)
+
+        self.assertFalse(engine.execute_action(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": soldier.id, "target": [far_ocean.q, far_ocean.r]}
+        )))
+        self.assertEqual(soldier.position, start)
+
+        self.assertTrue(engine.execute_action(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": soldier.id, "target": [adjacent_ocean.q, adjacent_ocean.r]}
+        )))
+        self.assertEqual(soldier.position, adjacent_ocean)
+        self.assertEqual(soldier.movement_points, 0)
+
+    def test_unit_cannot_reach_land_beyond_ocean_without_enough_sea_budget(self):
         engine = GameEngine()
         self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
 

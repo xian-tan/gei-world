@@ -59,15 +59,10 @@ class UnitSystem:
         if not target_tile:
             return False
         
-        # 检查目标是否为陆地
-        if target_tile.terrain_type.value == "ocean":
-            return False
-        
-        # 检查是否存在移动力内的陆地路径，避免跨海/跨障碍跳跃
-        path_distance = self._find_land_path_distance(
+        movement_cost = self._find_movement_cost(
             unit.position, target_position, unit.movement_points, map_tiles
         )
-        if path_distance is None:
+        if movement_cost is None:
             return False
         
         # 执行移动
@@ -76,20 +71,48 @@ class UnitSystem:
             old_tile.units.remove(unit)
         
         unit.position = target_position
-        unit.movement_points -= path_distance
+        unit.movement_points = max(0, unit.movement_points - movement_cost)
         target_tile.units.append(unit)
         
         return True
     
     def get_reachable_tiles(self, unit: Unit, map_tiles: dict) -> List[HexCoord]:
-        """获取单位当前移动力内真实可达的陆地地块。"""
+        """获取单位当前移动力内真实可达的地块。"""
         reachable = []
-        for coord, tile in map_tiles.items():
-            if coord == unit.position or tile.terrain_type.value == "ocean":
+        for coord in map_tiles.keys():
+            if coord == unit.position:
                 continue
-            if self._find_land_path_distance(unit.position, coord, unit.movement_points, map_tiles) is not None:
+            if self._find_movement_cost(unit.position, coord, unit.movement_points, map_tiles) is not None:
                 reachable.append(coord)
         return reachable
+    
+    def _find_movement_cost(self, start: HexCoord, target: HexCoord,
+                            max_movement: int, map_tiles: dict) -> Optional[int]:
+        """按地形规则查找移动消耗。"""
+        if start == target:
+            return 0
+        if max_movement <= 0:
+            return None
+        
+        start_tile = map_tiles.get(start)
+        target_tile = map_tiles.get(target)
+        if not start_tile or not target_tile:
+            return None
+        
+        start_is_ocean = start_tile.terrain_type.value == "ocean"
+        target_is_ocean = target_tile.terrain_type.value == "ocean"
+        
+        if not start_is_ocean and not target_is_ocean:
+            return self._find_land_path_distance(start, target, max_movement, map_tiles)
+        
+        # 陆地下海：必须把海格作为最终落点，并清空全部移动力
+        if not start_is_ocean and target_is_ocean:
+            can_embark = self._can_reach_ocean_as_final_step(start, target, max_movement, map_tiles)
+            return max_movement if can_embark else None
+        
+        # 海面移动力减半；最少允许移动 1 格，避免低移动力单位困死海上
+        sea_budget = max(1, max_movement // 2)
+        return max_movement if self._can_reach_with_any_terrain(start, target, sea_budget, map_tiles) else None
     
     def _find_land_path_distance(self, start: HexCoord, target: HexCoord,
                                  max_distance: int, map_tiles: dict) -> Optional[int]:
@@ -118,6 +141,53 @@ class UnitSystem:
                 queue.append((neighbor, next_distance))
         
         return None
+    
+    def _can_reach_ocean_as_final_step(self, start: HexCoord, target: HexCoord,
+                                       max_distance: int, map_tiles: dict) -> bool:
+        """判断能否在本回合最后一步从陆地进入目标海格。"""
+        queue = deque([(start, 0)])
+        visited = {start}
+        
+        while queue:
+            current, distance = queue.popleft()
+            if distance >= max_distance:
+                continue
+            
+            for neighbor in current.neighbors():
+                tile = map_tiles.get(neighbor)
+                if not tile:
+                    continue
+                next_distance = distance + 1
+                if neighbor == target and tile.terrain_type.value == "ocean":
+                    return next_distance <= max_distance
+                if neighbor in visited or tile.terrain_type.value == "ocean":
+                    continue
+                visited.add(neighbor)
+                queue.append((neighbor, next_distance))
+        
+        return False
+    
+    def _can_reach_with_any_terrain(self, start: HexCoord, target: HexCoord,
+                                    max_steps: int, map_tiles: dict) -> bool:
+        """判断海上移动预算内能否到达目标，允许海陆混合。"""
+        queue = deque([(start, 0)])
+        visited = {start}
+        
+        while queue:
+            current, distance = queue.popleft()
+            if distance >= max_steps:
+                continue
+            
+            for neighbor in current.neighbors():
+                if neighbor in visited or neighbor not in map_tiles:
+                    continue
+                next_distance = distance + 1
+                if neighbor == target:
+                    return True
+                visited.add(neighbor)
+                queue.append((neighbor, next_distance))
+        
+        return False
     
     def restore_movement_points(self, player: Player):
         """恢复玩家所有单位的移动力"""
