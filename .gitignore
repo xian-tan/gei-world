@@ -1,1 +1,29 @@
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test/cache artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
 .conda/
+.venv/
+venv/
+env/
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE/OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Logs/temp
+*.log
+*.tmp
