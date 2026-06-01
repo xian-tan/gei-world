@@ -35,6 +35,7 @@ class GameEngine:
         self.winner = None
         self.map_tiles = {}
         self.ai_player_configs = {}
+        self._last_failure_reason = ""
     
     def initialize_game(self, player_names: List[str], map_seed: int = None) -> bool:
         """初始化游戏"""
@@ -99,21 +100,29 @@ class GameEngine:
     
     def execute_action_with_result(self, action: GameAction) -> ActionResult:
         """执行游戏行动并返回结构化结果。"""
+        self._last_failure_reason = ""
         before = self._capture_action_snapshot()
         success = self._execute_action_bool(action)
         events = self._build_action_events(before, action, success)
         message = self._build_action_message(action, success, events)
         return ActionResult(success=success, message=message, events=events)
     
+    def _fail(self, reason: str) -> bool:
+        """记录失败原因并返回 False。"""
+        self._last_failure_reason = reason
+        return False
+    
     def _execute_action_bool(self, action: GameAction) -> bool:
         """执行游戏行动的内部 bool 实现。"""
-        if not self.game_started or self.game_over:
-            return False
+        if not self.game_started:
+            return self._fail("游戏尚未开始")
+        if self.game_over:
+            return self._fail("游戏已结束，无法继续行动")
         
         # 验证是否是当前玩家
         current_player = self.turn_system.get_current_player()
         if not current_player or current_player.id != action.player_id:
-            return False
+            return self._fail("还没轮到该玩家行动")
         
         # 根据行动类型执行
         if action.action_type == ActionType.MOVE_UNIT:
@@ -125,23 +134,34 @@ class GameEngine:
         elif action.action_type == ActionType.END_TURN:
             return self._execute_end_turn(action)
         
-        return False
+        return self._fail("未知行动类型")
     
     def _execute_move_unit(self, action: GameAction) -> bool:
         """执行移动单位行动"""
         unit_id = action.params.get("unit_id")
         target = action.params.get("target")
         
-        if not unit_id or not target:
-            return False
+        if not unit_id:
+            return self._fail("移动失败：未指定单位")
+        if not target:
+            return self._fail("移动失败：未指定目标位置")
         
         unit = self.unit_system.get_unit_by_id(unit_id)
         current_player = self.turn_system.get_current_player()
-        if not unit or unit.owner != current_player:
-            return False
+        if not unit:
+            return self._fail("移动失败：未找到该单位")
+        if unit.owner != current_player:
+            return self._fail("移动失败：只能移动自己的单位")
         
         acting_player = current_player
-        target_coord = HexCoord(target[0], target[1])
+        try:
+            target_coord = HexCoord(target[0], target[1])
+        except (TypeError, IndexError):
+            return self._fail("移动失败：目标位置格式错误")
+        
+        move_failure = self.unit_system.get_move_failure_reason(unit, target_coord, self.map_tiles)
+        if move_failure:
+            return self._fail(move_failure)
         
         # 执行移动
         if self.unit_system.move_unit(unit, target_coord, self.map_tiles):
@@ -180,12 +200,16 @@ class GameEngine:
         unit_id = action.params.get("unit_id")
         
         if not unit_id:
-            return False
+            return self._fail("建城失败：未指定移民")
         
         unit = self.unit_system.get_unit_by_id(unit_id)
         current_player = self.turn_system.get_current_player()
-        if not unit or unit.owner != current_player or unit.unit_type != UnitType.SETTLER:
-            return False
+        if not unit:
+            return self._fail("建城失败：未找到该单位")
+        if unit.owner != current_player:
+            return self._fail("建城失败：只能使用自己的移民建城")
+        if unit.unit_type != UnitType.SETTLER:
+            return self._fail("建城失败：只有移民可以建城")
         
         # 建城
         try:
@@ -198,33 +222,41 @@ class GameEngine:
             # 更新视野
             self._update_all_visions()
             return True
-        except ValueError:
-            return False
+        except ValueError as error:
+            return self._fail(str(error))
     
     def _execute_build_unit(self, action: GameAction) -> bool:
         """执行建造单位行动"""
         city_id = action.params.get("city_id")
         unit_type_str = action.params.get("unit_type")
         
-        if not city_id or not unit_type_str:
-            return False
+        if not city_id:
+            return self._fail("生产失败：未指定城市")
+        if not unit_type_str:
+            return self._fail("生产失败：未指定单位类型")
         
         try:
             unit_type = UnitType(unit_type_str)
         except ValueError:
-            return False
+            return self._fail("生产失败：未知单位类型")
         
         city = self.city_system.get_city_by_id(city_id)
         current_player = self.turn_system.get_current_player()
-        if not city or city.owner != current_player:
-            return False
+        if not city:
+            return self._fail("生产失败：未找到该城市")
+        if city.owner != current_player:
+            return self._fail("生产失败：只能在自己的城市生产")
+        
+        build_failure = self.city_system.get_build_unit_failure_reason(city, unit_type)
+        if build_failure:
+            return self._fail(build_failure)
         
         # 建造单位
         unit = self.city_system.build_unit(city, unit_type, self.unit_system, self.map_tiles)
         if unit:
             self._update_all_visions()
             return True
-        return False
+        return self._fail("生产失败")
     
     def _execute_end_turn(self, action: GameAction) -> bool:
         """执行结束回合行动"""
@@ -400,7 +432,7 @@ class GameEngine:
                 if event.event_type in {"game_over", "city_captured", "combat_resolved", "unit_destroyed"}:
                     return event.message
         if not success:
-            return "行动失败"
+            return self._last_failure_reason or "行动失败"
         messages = {
             ActionType.MOVE_UNIT: "单位移动成功",
             ActionType.BUILD_CITY: "城市建立成功",

@@ -54,16 +54,13 @@ class UnitSystem:
     
     def move_unit(self, unit: Unit, target_position: HexCoord, map_tiles: dict) -> bool:
         """移动单位"""
-        # 检查目标位置是否存在
         target_tile = map_tiles.get(target_position)
-        if not target_tile:
+        if self.get_move_failure_reason(unit, target_position, map_tiles):
             return False
         
         movement_cost = self._find_movement_cost(
             unit.position, target_position, unit.movement_points, map_tiles
         )
-        if movement_cost is None:
-            return False
         
         # 执行移动
         old_tile = map_tiles.get(unit.position)
@@ -75,6 +72,20 @@ class UnitSystem:
         target_tile.units.append(unit)
         
         return True
+    
+    def get_move_failure_reason(self, unit: Unit, target_position: HexCoord, map_tiles: dict) -> Optional[str]:
+        """获取移动失败原因；可移动时返回 None。"""
+        target_tile = map_tiles.get(target_position)
+        if not target_tile:
+            return "移动失败：目标不在地图内"
+        if unit.movement_points <= 0:
+            return "移动失败：该单位本回合移动力已用完，请结束回合恢复"
+        movement_cost = self._find_movement_cost(
+            unit.position, target_position, unit.movement_points, map_tiles
+        )
+        if movement_cost is None:
+            return "移动失败：目标不可达，请选择黄色高亮范围内的地块"
+        return None
     
     def get_reachable_tiles(self, unit: Unit, map_tiles: dict) -> List[HexCoord]:
         """获取单位当前移动力内真实可达的地块。"""

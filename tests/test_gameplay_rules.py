@@ -439,6 +439,62 @@ class TestGameplayRules(unittest.TestCase):
         self.assertEqual(loaded.ai_player_configs, engine.ai_player_configs)
         self.assertTrue(player1.explored_tiles.issubset(loaded_player1.explored_tiles))
 
+    def test_action_result_reports_failure_reasons(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+        player1, player2 = engine.player_system.players
+
+        result = engine.execute_action_with_result(GameAction(
+            player_id=player2.id,
+            action_type=ActionType.END_TURN,
+            params={}
+        ))
+        self.assertFalse(result.success)
+        self.assertIn("还没轮到", result.message)
+
+        enemy_unit = player2.units[0]
+        result = engine.execute_action_with_result(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": enemy_unit.id, "target": [enemy_unit.position.q, enemy_unit.position.r]}
+        ))
+        self.assertFalse(result.success)
+        self.assertIn("只能移动自己的单位", result.message)
+
+        own_unit = player1.units[0]
+        result = engine.execute_action_with_result(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": own_unit.id, "target": [99, 99]}
+        ))
+        self.assertFalse(result.success)
+        self.assertIn("目标不在地图内", result.message)
+
+        engine.map_tiles[own_unit.position].terrain_type = TerrainType.OCEAN
+        result = engine.execute_action_with_result(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.BUILD_CITY,
+            params={"unit_id": own_unit.id}
+        ))
+        self.assertFalse(result.success)
+        self.assertIn("只能在陆地建城", result.message)
+        engine.map_tiles[own_unit.position].terrain_type = TerrainType.LAND
+
+        self.assertTrue(engine.execute_action(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.BUILD_CITY,
+            params={"unit_id": own_unit.id}
+        )))
+        city = player1.cities[0]
+        player1.gold = 0
+        result = engine.execute_action_with_result(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.BUILD_UNIT,
+            params={"city_id": city.id, "unit_type": UnitType.SOLDIER.value}
+        ))
+        self.assertFalse(result.success)
+        self.assertIn("金币不足", result.message)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -106,6 +106,47 @@ def test_ui_fixes():
         assert "单位下海，移动力已耗尽" in client.ui_system.messages
         print("✓ 海陆移动消息格式化成功")
         
+        client.ui_system.messages.clear()
+        client._notify_action_result(ActionResult(False, "生产失败：金币不足，需要 30，当前 0"))
+        assert "金币不足" in client.ui_system.messages[-1]
+        print("✓ 失败原因消息展示成功")
+        
+        client.ui_system.messages.clear()
+        assert client.start_game(["玩家1", "AI玩家"], 123)
+        assert any("新手提示" in message for message in client.ui_system.messages)
+        player = client.game_engine.get_current_player()
+        settler = player.units[0]
+        settler_tile = client.game_engine.map_tiles[settler.position]
+        client.ui_system.messages.clear()
+        client._handle_normal_click(settler_tile, player)
+        assert any("右键" in message and "建城" in message for message in client.ui_system.messages)
+        
+        client.game_engine.unit_system.remove_unit(settler, client.game_engine.map_tiles)
+        city = client.game_engine.city_system.create_city(player, settler.position, client.game_engine.map_tiles)
+        player.cities.append(city)
+        client.ui_system.messages.clear()
+        client._handle_normal_click(client.game_engine.map_tiles[city.center_tile], player)
+        assert any("生产" in message and "金币" in message for message in client.ui_system.messages)
+        print("✓ 新手提示和选择建议成功")
+        
+        selected_city.owner.gold = 0
+        ui_system.show_city_panel_for(selected_city)
+        ui_system.render(surface, {
+            'current_player': winner,
+            'turn_number': 1,
+            'game_over': False,
+            'winner': None,
+            'selected_coord': selected_coord,
+            'selected_tile': selected_tile,
+            'selected_unit': selected_unit,
+            'selected_city': selected_city
+        })
+        disabled_button = ui_system._temp_city_buttons[0]
+        assert not disabled_button.enabled
+        assert ui_system.handle_click(disabled_button.rect.center)
+        assert any("金币不足" in message for message in ui_system.messages)
+        print("✓ 禁用生产按钮反馈成功")
+        
         # 测试 UI 默认存档加载流程
         assert client.start_game(["玩家1", "AI玩家"], 123)
         with tempfile.TemporaryDirectory() as tmp_dir:

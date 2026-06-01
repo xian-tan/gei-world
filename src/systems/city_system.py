@@ -15,8 +15,9 @@ class CitySystem:
     def create_city(self, owner: Player, center_tile: HexCoord, map_tiles: dict) -> City:
         """建立城市"""
         # 检查是否可以建城
-        if not self.can_build_city(center_tile, map_tiles, owner):
-            raise ValueError("无法在此位置建城")
+        failure_reason = self.get_build_city_failure_reason(center_tile, map_tiles, owner)
+        if failure_reason:
+            raise ValueError(failure_reason)
         
         # 创建城市
         city = City(
@@ -46,30 +47,34 @@ class CitySystem:
     
     def can_build_city(self, position: HexCoord, map_tiles: dict, owner: Player = None) -> bool:
         """检查是否可以建城"""
+        return self.get_build_city_failure_reason(position, map_tiles, owner) is None
+    
+    def get_build_city_failure_reason(self, position: HexCoord, map_tiles: dict, owner: Player = None) -> Optional[str]:
+        """获取建城失败原因；可建城时返回 None。"""
         tile = map_tiles.get(position)
         if not tile:
-            return False
+            return "建城失败：目标不在地图内"
         
         # 必须是陆地
         if tile.terrain_type.value != "land":
-            return False
+            return "建城失败：只能在陆地建城"
         
         # 不能已经有城市
         if tile.city:
-            return False
+            return "建城失败：该地块已有城市"
         
         # 不能在敌方已拥有地块建城
         if owner and tile.owner and tile.owner != owner:
-            return False
+            return "建城失败：不能在敌方领土建城"
         
         # 不能在敌方城市核心范围内建城
         if owner:
             core_radius = CITY_CONFIG["territory_radius"]
             for city in self.cities:
                 if city.owner != owner and city.center_tile.distance_to(position) <= core_radius:
-                    return False
+                    return "建城失败：距离敌方城市太近"
         
-        return True
+        return None
     
     def _get_initial_territory(self, center: HexCoord, map_tiles: dict) -> Set[HexCoord]:
         """获取城市初始领土"""
@@ -102,8 +107,14 @@ class CitySystem:
     
     def can_build_unit(self, city: City, unit_type: UnitType) -> bool:
         """检查是否可以建造单位"""
+        return self.get_build_unit_failure_reason(city, unit_type) is None
+    
+    def get_build_unit_failure_reason(self, city: City, unit_type: UnitType) -> Optional[str]:
+        """获取生产失败原因；可生产时返回 None。"""
         cost = self._get_unit_cost(unit_type)
-        return city.owner.gold >= cost
+        if city.owner.gold < cost:
+            return f"生产失败：金币不足，需要 {cost}，当前 {city.owner.gold}"
+        return None
     
     def build_unit(self, city: City, unit_type: UnitType, unit_system, map_tiles: dict) -> Optional[Unit]:
         """建造单位"""

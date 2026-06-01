@@ -28,6 +28,7 @@ class Button:
     color: tuple = COLORS['LIGHT_GRAY']
     text_color: tuple = COLORS['BLACK']
     border_color: tuple = COLORS['BLACK']
+    disabled_message: str = ""
 
 
 class UISystem:
@@ -121,10 +122,10 @@ class UISystem:
             y_offset += 10
             help_texts = [
                 "=== 控制说明 ===",
-                "左键: 选择单位/城市",
-                "右键: 移民建城",
-                "WASD: 移动地图",
-                "滚轮: 缩放",
+                "左键: 选择/移动",
+                "黄框: 可移动范围",
+                "右键: 移民原地建城",
+                "城市: 生产单位",
                 "ESC: 取消选择"
             ]
             
@@ -216,7 +217,8 @@ class UISystem:
             rect=pygame.Rect(panel_x + 20, y_offset, 120, 30),
             text=settler_text,
             callback=lambda: self._build_unit(city, UnitType.SETTLER),
-            enabled=settler_enabled
+            enabled=settler_enabled,
+            disabled_message=f"金币不足：生产移民需要 {settler_cost} 金币，当前 {city.owner.gold}"
         )
         self._draw_button(surface, settler_button)
         
@@ -228,7 +230,8 @@ class UISystem:
             rect=pygame.Rect(panel_x + 150, y_offset, 120, 30),
             text=soldier_text,
             callback=lambda: self._build_unit(city, UnitType.SOLDIER),
-            enabled=soldier_enabled
+            enabled=soldier_enabled,
+            disabled_message=f"金币不足：生产士兵需要 {soldier_cost} 金币，当前 {city.owner.gold}"
         )
         self._draw_button(surface, soldier_button)
         y_offset += 50
@@ -299,7 +302,7 @@ class UISystem:
         winner_rect = winner_text.get_rect(center=(panel_x + panel_width // 2, panel_y + 85))
         surface.blit(winner_text, winner_rect)
         
-        hint = self.font_manager.render_text("按 ESC 退出", 'small', COLORS['DARK_GRAY'])
+        hint = self.font_manager.render_text("按 R 重新开始 / ESC 退出", 'small', COLORS['DARK_GRAY'])
         hint_rect = hint.get_rect(center=(panel_x + panel_width // 2, panel_y + 125))
         surface.blit(hint, hint_rect)
     
@@ -346,15 +349,21 @@ class UISystem:
         """处理UI点击事件"""
         # 检查常规按钮
         for button in self.buttons:
-            if button.rect.collidepoint(pos) and button.enabled:
-                button.callback()
+            if button.rect.collidepoint(pos):
+                if button.enabled:
+                    button.callback()
+                elif button.disabled_message:
+                    self.add_message(button.disabled_message)
                 return True
         
         # 检查城市面板按钮
         if hasattr(self, '_temp_city_buttons'):
             for button in self._temp_city_buttons:
-                if button.rect.collidepoint(pos) and button.enabled:
-                    button.callback()
+                if button.rect.collidepoint(pos):
+                    if button.enabled:
+                        button.callback()
+                    elif button.disabled_message:
+                        self.add_message(button.disabled_message)
                     return True
         
         return False

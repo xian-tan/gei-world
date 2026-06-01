@@ -166,6 +166,9 @@ class UIClient:
             self._center_camera_on_map()
             
             self._notify(f"游戏开始！玩家: {', '.join(player_names)}")
+            self._notify("新手提示：左键选中初始移民，黄色边框是可移动范围。")
+            self._notify("移动到合适陆地后，在移民所在格右键建立第一座城市。")
+            self._notify("目标：建城、生产士兵，探索并占领对手城市。")
             return True
         return False
     
@@ -383,7 +386,14 @@ class UIClient:
             self.render_system.set_selected_unit(unit.id)
             reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
             self.render_system.set_reachable_tiles(set(reachable_tiles))
-            self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})")
+            if unit.unit_type == UnitType.SETTLER:
+                self._notify(f"选中移民：移动力 {unit.movement_points}。左键移动，右键在当前位置建城。")
+            elif unit.unit_type == UnitType.SOLDIER:
+                self._notify(f"选中士兵：移动力 {unit.movement_points}。左键移动/攻击，可占领敌方地块和城市。")
+            else:
+                self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})")
+            if unit.movement_points <= 0:
+                self._notify("该单位本回合移动力已用完，请点击结束回合恢复。")
         
         # 检查是否点击了自己的城市
         elif tile.city and tile.city.owner == current_player:
@@ -391,7 +401,7 @@ class UIClient:
             self.ui_system.show_city_panel_for(tile.city)
             self.render_system.clear_selected_unit()
             self.render_system.clear_reachable_tiles()
-            self._notify("选中城市")
+            self._notify(f"选中城市：当前金币 {current_player.gold}。可在城市面板生产移民或士兵。")
         
         else:
             # 取消选择
@@ -413,10 +423,9 @@ class UIClient:
             self._notify("单位已在该位置")
             return
         
-        # 检查移动距离
-        distance = unit.position.distance_to(tile.coord)
-        if distance > unit.movement_points:
-            self._notify(f"移动距离({distance})超过移动力({unit.movement_points})")
+        move_failure = self.game_engine.unit_system.get_move_failure_reason(unit, tile.coord, self.game_engine.map_tiles)
+        if move_failure:
+            self._notify(move_failure)
             return
         
         # 移动单位到目标地块
