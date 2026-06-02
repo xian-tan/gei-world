@@ -95,7 +95,7 @@ class UIClient:
     
     def _notify_action_result(self, result, actor_name: str = None):
         """展示结构化行动结果，优先显示战斗/攻城等关键事件。"""
-        priority_types = {"combat_resolved", "city_under_siege", "city_captured", "game_over"}
+        priority_types = {"combat_resolved", "city_captured", "game_over"}
         has_priority_event = any(event.event_type in priority_types for event in result.events)
         messages = []
         
@@ -132,8 +132,6 @@ class UIClient:
             return f"战斗结束：消灭 {destroyed_count} 个单位"
         if event.event_type == "unit_destroyed":
             return "单位被消灭"
-        if event.event_type == "city_under_siege":
-            return event.message or "攻城集结中"
         if event.event_type == "city_captured":
             return event.message or "城市被占领"
         if event.event_type == "game_over":
@@ -468,20 +466,40 @@ class UIClient:
             self._cycle_selectable_on_tile(tile, current_player)
             return
         
-        move_failure = self.game_engine.unit_system.get_move_failure_reason(unit, tile.coord, self.game_engine.map_tiles)
-        if move_failure:
-            self._notify(move_failure)
-            return
+        moving_units = [unit]
+        if unit.unit_type == UnitType.SOLDIER:
+            source_tile = self.game_engine.map_tiles.get(unit.position)
+            if source_tile:
+                same_tile_soldiers = [
+                    candidate for candidate in source_tile.units
+                    if candidate.owner == current_player
+                    and candidate.unit_type == UnitType.SOLDIER
+                    and candidate.movement_points > 0
+                ]
+                same_tile_soldiers.sort(key=lambda candidate: 0 if candidate.id == unit.id else 1)
+                moving_units = same_tile_soldiers[:max(1, min(self.ui_system.move_soldier_quantity, len(same_tile_soldiers)))]
+        
+        for moving_unit in moving_units:
+            move_failure = self.game_engine.unit_system.get_move_failure_reason(moving_unit, tile.coord, self.game_engine.map_tiles)
+            if move_failure:
+                self._notify(move_failure)
+                return
         
         # 移动单位到目标地块
         action = GameAction(
             player_id=current_player.id,
             action_type=ActionType.MOVE_UNIT,
-            params={'unit_id': unit_id, 'target': [tile.coord.q, tile.coord.r]}
+            params={
+                'unit_id': unit_id,
+                'unit_ids': [moving_unit.id for moving_unit in moving_units],
+                'target': [tile.coord.q, tile.coord.r]
+            }
         )
         
         result = self._execute_action_and_notify(action)
         if result.success:
+            if len(moving_units) > 1:
+                self._notify(f"已移动 {len(moving_units)} 名士兵")
             unit = self._find_unit_by_id(unit_id)
             if unit:
                 if unit.movement_points <= 0:
@@ -575,16 +593,28 @@ class UIClient:
         if result.success:
             self._clear_ui_selection_state()
     
-    def _handle_build_unit(self, city_id: str, unit_type: UnitType):
-        """处理建造单位"""
+    def _handle_build_unit(self, city_id: str, unit_type: UnitType, quantity: int = 1):
+        """处理建造单位。"""
         current_player = self.game_engine.get_current_player()
-        action = GameAction(
-            player_id=current_player.id,
-            action_type=ActionType.BUILD_UNIT,
-            params={'city_id': city_id, 'unit_type': unit_type.value}
-        )
+        quantity = 1 if unit_type == UnitType.SETTLER else max(1, quantity)
+        success_count = 0
+        last_result = None
+        for _ in range(quantity):
+            action = GameAction(
+                player_id=current_player.id,
+                action_type=ActionType.BUILD_UNIT,
+                params={'city_id': city_id, 'unit_type': unit_type.value}
+            )
+            result = self.game_engine.execute_action_with_result(action)
+            last_result = result
+            if not result.success:
+                break
+            success_count += 1
         
-        self._execute_action_and_notify(action)
+        if success_count > 1 and unit_type == UnitType.SOLDIER:
+            self._notify(f"生产士兵 {success_count} 名")
+        elif last_result:
+            self._notify_action_result(last_result)
     
     def _handle_end_turn(self):
         """处理结束回合"""

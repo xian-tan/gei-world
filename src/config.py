@@ -22,7 +22,7 @@ UNIT_CONFIG = {
     "soldier_vision": 2,    # 士兵视野
     "settler_vision": 1,    # 移民视野
     "settler_cost": 50,     # 移民建造成本
-    "soldier_cost": 30,     # 士兵建造成本
+    "soldier_cost": 1,      # 士兵建造成本
 }
 
 # 经济配置

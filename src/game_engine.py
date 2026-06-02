@@ -13,7 +13,7 @@ from .systems.city_system import CitySystem
 from .systems.combat_system import CombatSystem
 from .systems.vision_system import VisionSystem
 from .systems.turn_system import TurnSystem
-from .config import PLAYER_CONFIG, CITY_CONFIG
+from .config import PLAYER_CONFIG
 
 
 class GameEngine:
@@ -139,32 +139,41 @@ class GameEngine:
     def _execute_move_unit(self, action: GameAction) -> bool:
         """执行移动单位行动"""
         unit_id = action.params.get("unit_id")
+        unit_ids = action.params.get("unit_ids") or ([unit_id] if unit_id else [])
         target = action.params.get("target")
         
-        if not unit_id:
+        if not unit_ids:
             return self._fail("移动失败：未指定单位")
         if not target:
             return self._fail("移动失败：未指定目标位置")
         
-        unit = self.unit_system.get_unit_by_id(unit_id)
         current_player = self.turn_system.get_current_player()
-        if not unit:
-            return self._fail("移动失败：未找到该单位")
-        if unit.owner != current_player:
-            return self._fail("移动失败：只能移动自己的单位")
+        units = []
+        for moving_unit_id in unit_ids:
+            moving_unit = self.unit_system.get_unit_by_id(moving_unit_id)
+            if not moving_unit:
+                return self._fail("移动失败：未找到该单位")
+            if moving_unit.owner != current_player:
+                return self._fail("移动失败：只能移动自己的单位")
+            units.append(moving_unit)
         
+        unit = units[0]
         acting_player = current_player
         try:
             target_coord = HexCoord(target[0], target[1])
         except (TypeError, IndexError):
             return self._fail("移动失败：目标位置格式错误")
         
-        move_failure = self.unit_system.get_move_failure_reason(unit, target_coord, self.map_tiles)
-        if move_failure:
-            return self._fail(move_failure)
+        for moving_unit in units:
+            move_failure = self.unit_system.get_move_failure_reason(moving_unit, target_coord, self.map_tiles)
+            if move_failure:
+                return self._fail(move_failure)
         
-        # 执行移动
-        if self.unit_system.move_unit(unit, target_coord, self.map_tiles):
+        # 先移动所有选中的单位，再统一结算战斗/攻城
+        moved_any = False
+        for moving_unit in units:
+            moved_any = self.unit_system.move_unit(moving_unit, target_coord, self.map_tiles) or moved_any
+        if moved_any:
             # 检查是否需要战斗
             if self.combat_system.check_for_combat(target_coord, self.map_tiles):
                 self._resolve_combat_at_position(target_coord, acting_player)
@@ -176,15 +185,13 @@ class GameEngine:
                 self._check_game_over()
                 return True
             
-            # 士兵进入敌方城市中心时，先允许集结；兵力足够后自动攻城
-            if (unit.unit_type == UnitType.SOLDIER and target_tile.city and
-                    target_tile.city.owner != unit.owner):
+            # 士兵进入敌方城市中心时立即攻城，由本次批量移动的士兵共同结算
+            if (target_tile.city and target_tile.city.owner != acting_player and
+                    any(u.owner == acting_player and u.unit_type == UnitType.SOLDIER for u in target_tile.units)):
                 attacking_units = [u for u in target_tile.units if u.owner == acting_player]
-                attacking_soldiers = [u for u in attacking_units if u.unit_type == UnitType.SOLDIER]
-                if len(attacking_soldiers) >= CITY_CONFIG["defense_value"]:
-                    self.combat_system.attack_city(attacking_units, target_tile.city, self.map_tiles)
-                    self._sync_unit_registry()
-                    unit = self.unit_system.get_unit_by_id(unit_id)
+                self.combat_system.attack_city(attacking_units, target_tile.city, self.map_tiles)
+                self._sync_unit_registry()
+                unit = self.unit_system.get_unit_by_id(unit.id)
             
             # 如果是士兵，尝试占领普通地块；敌方城市未攻下前不改变城市中心归属
             if unit and unit.unit_type == UnitType.SOLDIER and not (target_tile.city and target_tile.city.owner != unit.owner):
@@ -318,29 +325,30 @@ class GameEngine:
         current_city_ids = {city.id for city in self.city_system.cities}
         
         if success and action.action_type == ActionType.MOVE_UNIT:
-            unit_id = action.params.get("unit_id")
-            unit = self.unit_system.get_unit_by_id(unit_id)
-            if unit:
-                from_position = before["unit_position_by_id"].get(unit.id)
-                to_position = [unit.position.q, unit.position.r]
-                from_terrain = None
-                if from_position:
-                    from_terrain = before["tile_terrain_by_coord"].get(tuple(from_position))
-                to_tile = self.map_tiles.get(unit.position)
-                to_terrain = to_tile.terrain_type.value if to_tile else None
-                events.append(ActionEvent(
-                    event_type="unit_moved",
-                    message="单位移动成功",
-                    data={
-                        "unit_id": unit.id,
-                        "owner_id": unit.owner.id,
-                        "from": from_position,
-                        "to": to_position,
-                        "from_terrain": from_terrain,
-                        "to_terrain": to_terrain,
-                        "remaining_movement": unit.movement_points
-                    }
-                ))
+            unit_ids = action.params.get("unit_ids") or [action.params.get("unit_id")]
+            for unit_id in unit_ids:
+                unit = self.unit_system.get_unit_by_id(unit_id)
+                if unit:
+                    from_position = before["unit_position_by_id"].get(unit.id)
+                    to_position = [unit.position.q, unit.position.r]
+                    from_terrain = None
+                    if from_position:
+                        from_terrain = before["tile_terrain_by_coord"].get(tuple(from_position))
+                    to_tile = self.map_tiles.get(unit.position)
+                    to_terrain = to_tile.terrain_type.value if to_tile else None
+                    events.append(ActionEvent(
+                        event_type="unit_moved",
+                        message="单位移动成功",
+                        data={
+                            "unit_id": unit.id,
+                            "owner_id": unit.owner.id,
+                            "from": from_position,
+                            "to": to_position,
+                            "from_terrain": from_terrain,
+                            "to_terrain": to_terrain,
+                            "remaining_movement": unit.movement_points
+                        }
+                    ))
         
         if success and action.action_type == ActionType.BUILD_CITY:
             new_city_ids = current_city_ids - before["city_ids"]
@@ -404,11 +412,9 @@ class GameEngine:
                 }
             ))
         
-        captured_city_ids = set()
         for city in self.city_system.cities:
             old_owner_id = before["city_owner_by_id"].get(city.id)
             if old_owner_id and old_owner_id != city.owner.id:
-                captured_city_ids.add(city.id)
                 events.append(ActionEvent(
                     event_type="city_captured",
                     message=f"城市被 {city.owner.name} 占领",
@@ -419,33 +425,6 @@ class GameEngine:
                         "position": [city.center_tile.q, city.center_tile.r]
                     }
                 ))
-        
-        if success and action.action_type == ActionType.MOVE_UNIT:
-            target = action.params.get("target")
-            if target and len(target) >= 2:
-                target_coord = HexCoord(target[0], target[1])
-                target_tile = self.map_tiles.get(target_coord)
-                current_player = self.player_system.get_player_by_id(action.player_id)
-                if (target_tile and target_tile.city and current_player and
-                        target_tile.city.id not in captured_city_ids and
-                        target_tile.city.owner != current_player):
-                    attacking_soldiers = [
-                        unit for unit in target_tile.units
-                        if unit.owner == current_player and unit.unit_type == UnitType.SOLDIER
-                    ]
-                    if attacking_soldiers:
-                        defense_value = CITY_CONFIG["defense_value"]
-                        events.append(ActionEvent(
-                            event_type="city_under_siege",
-                            message=f"攻城集结：{len(attacking_soldiers)}/{defense_value} 名士兵，继续派兵即可攻城",
-                            data={
-                                "city_id": target_tile.city.id,
-                                "attacker_id": current_player.id,
-                                "soldier_count": len(attacking_soldiers),
-                                "required_count": defense_value,
-                                "position": [target_coord.q, target_coord.r]
-                            }
-                        ))
         
         if self.game_over and not before["game_over"]:
             events.append(ActionEvent(
@@ -460,7 +439,7 @@ class GameEngine:
         """生成人类可读的行动结果消息。"""
         if events:
             for event in reversed(events):
-                if event.event_type in {"game_over", "city_captured", "city_under_siege", "combat_resolved", "unit_destroyed"}:
+                if event.event_type in {"game_over", "city_captured", "combat_resolved", "unit_destroyed"}:
                     return event.message
         if not success:
             return self._last_failure_reason or "行动失败"

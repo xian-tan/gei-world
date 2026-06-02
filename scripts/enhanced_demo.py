@@ -278,7 +278,7 @@ class EnhancedDemo:
         
         city = player.cities[0]  # 使用第一个城市
         
-        if player.gold >= 30:
+        if player.gold >= 1:
             action = GameAction(
                 player_id=player.id,
                 action_type=ActionType.BUILD_UNIT,

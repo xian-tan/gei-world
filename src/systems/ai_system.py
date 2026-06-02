@@ -5,7 +5,7 @@ import random
 from typing import Optional, List
 from ..models import Player, GameAction, ActionType, UnitType, HexCoord
 from ..game_engine import GameEngine
-from ..config import CITY_CONFIG
+from ..config import CITY_CONFIG, UNIT_CONFIG
 
 
 class AIPlayer:
@@ -76,7 +76,7 @@ class SimpleAI(AIPlayer):
         """尝试建造单位"""
         for city in self.player.cities:
             # 如果金币足够，优先建造士兵
-            if self.player.gold >= 30:  # 士兵成本
+            if self.player.gold >= UNIT_CONFIG["soldier_cost"]:
                 if engine.city_system.can_build_unit(city, UnitType.SOLDIER):
                     return GameAction(
                         player_id=self.player.id,
@@ -144,7 +144,7 @@ class AggressiveAI(SimpleAI):
         """优先建造士兵"""
         for city in self.player.cities:
             # 优先建造士兵
-            if self.player.gold >= 30:
+            if self.player.gold >= UNIT_CONFIG["soldier_cost"]:
                 if engine.city_system.can_build_unit(city, UnitType.SOLDIER):
                     return GameAction(
                         player_id=self.player.id,

@@ -300,7 +300,7 @@ class InteractiveController:
             
             print("建造单位:")
             print("1. 移民 (50金)")
-            print("2. 士兵 (30金)")
+            print("2. 士兵 (1金)")
             
             unit_choice = input("选择单位类型 (1-2): ")
             

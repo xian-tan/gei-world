@@ -7,7 +7,7 @@ import unittest
 from src.game_engine import GameEngine
 from src.models import ActionType, GameAction, UnitType, TerrainType, HexCoord
 from src.systems.save_system import GameSaveSystem
-from src.config import CITY_CONFIG
+from src.config import UNIT_CONFIG
 
 
 class TestGameplayRules(unittest.TestCase):
@@ -61,7 +61,31 @@ class TestGameplayRules(unittest.TestCase):
         self.assertIn("unit_destroyed", event_types)
         self.assertEqual(len(engine.map_tiles[target].units), 0)
 
-    def test_soldiers_can_gather_before_capturing_city(self):
+    def test_soldier_cost_is_one_and_can_build_with_one_gold(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        player = engine.player_system.players[0]
+        settler = player.units[0]
+        self.assertTrue(engine.execute_action(GameAction(
+            player_id=player.id,
+            action_type=ActionType.BUILD_CITY,
+            params={"unit_id": settler.id}
+        )))
+        city = player.cities[0]
+        player.gold = 1
+        self.assertEqual(UNIT_CONFIG["soldier_cost"], 1)
+
+        result = engine.execute_action_with_result(GameAction(
+            player_id=player.id,
+            action_type=ActionType.BUILD_UNIT,
+            params={"city_id": city.id, "unit_type": UnitType.SOLDIER.value}
+        ))
+        self.assertTrue(result.success)
+        self.assertEqual(player.gold, 0)
+        self.assertEqual(len([unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]), 1)
+
+    def test_batch_soldiers_can_capture_city_without_siege_state(self):
         engine = GameEngine()
         self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
 
@@ -71,38 +95,32 @@ class TestGameplayRules(unittest.TestCase):
                 engine.unit_system.remove_unit(unit, engine.map_tiles)
 
         city_center = HexCoord(0, 0)
-        source_a = HexCoord(1, 0)
-        source_b = HexCoord(0, 1)
-        for coord in [city_center, source_a, source_b]:
+        source = HexCoord(1, 0)
+        for coord in [city_center, source]:
             engine.map_tiles[coord].terrain_type = TerrainType.LAND
 
         city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
         defender.cities.append(city)
-        soldier_a = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, source_a)
-        soldier_b = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, source_b)
+        soldier_a = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, source)
+        soldier_b = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, source)
         for soldier in [soldier_a, soldier_b]:
-            engine.map_tiles[soldier.position].units.append(soldier)
+            engine.map_tiles[source].units.append(soldier)
             attacker.units.append(soldier)
 
-        first_result = engine.execute_action_with_result(GameAction(
+        result = engine.execute_action_with_result(GameAction(
             player_id=attacker.id,
             action_type=ActionType.MOVE_UNIT,
-            params={"unit_id": soldier_a.id, "target": [city_center.q, city_center.r]}
+            params={
+                "unit_id": soldier_a.id,
+                "unit_ids": [soldier_a.id, soldier_b.id],
+                "target": [city_center.q, city_center.r]
+            }
         ))
-        self.assertTrue(first_result.success)
-        self.assertEqual(city.owner, defender)
-        self.assertIn(soldier_a, attacker.units)
-        self.assertIn("city_under_siege", [event.event_type for event in first_result.events])
-        self.assertIn(f"1/{CITY_CONFIG['defense_value']}", first_result.message)
-
-        second_result = engine.execute_action_with_result(GameAction(
-            player_id=attacker.id,
-            action_type=ActionType.MOVE_UNIT,
-            params={"unit_id": soldier_b.id, "target": [city_center.q, city_center.r]}
-        ))
-        self.assertTrue(second_result.success)
+        self.assertTrue(result.success)
         self.assertEqual(city.owner, attacker)
-        self.assertIn("city_captured", [event.event_type for event in second_result.events])
+        event_types = [event.event_type for event in result.events]
+        self.assertIn("city_captured", event_types)
+        self.assertNotIn("city_under_siege", event_types)
 
     def test_action_result_reports_city_capture_and_game_over_events(self):
         engine = GameEngine()

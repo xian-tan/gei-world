@@ -111,7 +111,7 @@ def test_ui_fixes():
         print("✓ 海陆移动消息格式化成功")
         
         client.ui_system.messages.clear()
-        client._notify_action_result(ActionResult(False, "生产失败：金币不足，需要 30，当前 0"))
+        client._notify_action_result(ActionResult(False, "生产失败：金币不足，需要 1，当前 0"))
         assert "金币不足" in client.ui_system.messages[-1]
         print("✓ 失败原因消息展示成功")
         
@@ -255,6 +255,58 @@ def test_selection_cycle_build_city_and_minimap():
 
 
 
+def test_batch_soldier_production_and_movement():
+    """测试士兵批量生产和批量移动。"""
+    from ui.client_controller import UIClient
+    from src.models import UnitType, TerrainType
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "AI玩家"], 123)
+    player = client.game_engine.get_current_player()
+    settler = player.units[0]
+    city = client.game_engine.city_system.create_city(player, settler.position, client.game_engine.map_tiles)
+    player.cities.append(city)
+    client.game_engine.unit_system.remove_unit(settler, client.game_engine.map_tiles)
+    player.gold = 5
+    
+    client._handle_build_unit(city.id, UnitType.SOLDIER, quantity=3)
+    soldiers = [unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]
+    assert len(soldiers) == 3
+    assert player.gold == 2
+    assert any("生产士兵 3 名" in message for message in client.ui_system.messages)
+    
+    city_tile = client.game_engine.map_tiles[city.center_tile]
+    target = next(coord for coord in city.center_tile.neighbors() if coord in client.game_engine.map_tiles)
+    client.game_engine.map_tiles[target].terrain_type = TerrainType.LAND
+    client._select_unit(soldiers[0])
+    client.ui_system.move_soldier_quantity = 2
+    client._handle_unit_selected_click(client.game_engine.map_tiles[target], player)
+    moved = [unit for unit in soldiers if unit.position == target]
+    stayed = [unit for unit in soldiers if unit.position == city.center_tile]
+    assert len(moved) == 2
+    assert len(stayed) == 1
+    assert any("已移动 2 名士兵" in message for message in client.ui_system.messages)
+    
+    surface = pygame.Surface((800, 600))
+    client.ui_system.show_city_panel_for(city)
+    client.ui_system.render(surface, {
+        'current_player': player,
+        'turn_number': 1,
+        'game_over': False,
+        'winner': None,
+        'selected_coord': city.center_tile,
+        'selected_tile': city_tile,
+        'selected_unit': None,
+        'selected_city': city
+    })
+    city_sliders = [slider for slider in client.ui_system.sliders if slider.label == "city_soldier_quantity"]
+    assert city_sliders
+    client.ui_system.handle_click(city_sliders[0].rect.midright)
+    assert client.ui_system.city_soldier_quantity >= 1
+
+
+
 def test_start_menu_and_game_over_keys():
     """测试开始菜单和游戏结束快捷键流程。"""
     from ui.client_controller import UIClient
@@ -315,4 +367,5 @@ def test_start_menu_and_game_over_keys():
 if __name__ == "__main__":
     test_ui_fixes()
     test_selection_cycle_build_city_and_minimap()
+    test_batch_soldier_production_and_movement()
     test_start_menu_and_game_over_keys()

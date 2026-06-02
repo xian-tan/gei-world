@@ -31,6 +31,17 @@ class Button:
     disabled_message: str = ""
 
 
+@dataclass
+class Slider:
+    """简单点击式滑块。"""
+    rect: pygame.Rect
+    min_value: int
+    max_value: int
+    value: int
+    callback: Callable
+    label: str = ""
+
+
 class UISystem:
     """UI界面系统"""
     
@@ -38,11 +49,14 @@ class UISystem:
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.buttons = []
+        self.sliders = []
         self.panels = {}
         self.font_manager = get_font_manager()
         self.show_city_panel = False
         self.selected_city = None
         self.messages: List[str] = []
+        self.city_soldier_quantity = 1
+        self.move_soldier_quantity = 1
         self.on_build_city = None
         
     def add_message(self, message: str):
@@ -52,6 +66,7 @@ class UISystem:
         
     def render(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染UI界面"""
+        self.sliders = []
         # 渲染右侧信息面板
         self._render_info_panel(surface, game_state)
         
@@ -118,6 +133,7 @@ class UISystem:
                 y_offset += 20
             
             y_offset = self._render_selection_info(surface, game_state, panel_x, y_offset + 8)
+            y_offset = self._render_move_quantity_slider(surface, game_state, panel_x, y_offset + 8)
             
             # 添加控制提示
             y_offset += 10
@@ -171,6 +187,44 @@ class UISystem:
             y_offset += 16
         return y_offset
     
+    def _render_move_quantity_slider(self, surface: pygame.Surface, game_state: Dict[str, Any],
+                                      panel_x: int, y_offset: int) -> int:
+        """选中士兵时渲染批量移动数量滑块。"""
+        current_player = game_state.get('current_player')
+        selected_unit = game_state.get('selected_unit')
+        selected_tile = game_state.get('selected_tile')
+        if not current_player or not selected_unit or not selected_tile:
+            return y_offset
+        if selected_unit.unit_type != UnitType.SOLDIER:
+            return y_offset
+        movable_soldiers = [
+            unit for unit in selected_tile.units
+            if unit.owner == current_player
+            and unit.unit_type == UnitType.SOLDIER
+            and unit.movement_points > 0
+        ]
+        max_count = len(movable_soldiers)
+        if max_count <= 1:
+            self.move_soldier_quantity = 1
+            return y_offset
+        self.move_soldier_quantity = max(1, min(self.move_soldier_quantity, max_count))
+        label = self.font_manager.render_text(
+            f"移动士兵数量: {self.move_soldier_quantity}/{max_count}", 'small', COLORS['BLACK']
+        )
+        surface.blit(label, (panel_x + 10, y_offset))
+        y_offset += 18
+        slider = Slider(
+            rect=pygame.Rect(panel_x + 10, y_offset, 210, 12),
+            min_value=1,
+            max_value=max_count,
+            value=self.move_soldier_quantity,
+            callback=self._set_move_soldier_quantity,
+            label="move_soldier_quantity"
+        )
+        self._draw_slider(surface, slider)
+        self.sliders.append(slider)
+        return y_offset + 20
+    
     def _render_buttons(self, surface: pygame.Surface):
         """渲染按钮"""
         for button in self.buttons:
@@ -187,8 +241,8 @@ class UISystem:
     
     def _render_city_panel(self, surface: pygame.Surface, city: City):
         """渲染城市面板"""
-        panel_width = 300
-        panel_height = 250
+        panel_width = 320
+        panel_height = 300
         panel_x = (self.screen_width - panel_width) // 2
         panel_y = (self.screen_height - panel_height) // 2
         
@@ -223,14 +277,37 @@ class UISystem:
         )
         self._draw_button(surface, settler_button)
         
-        # 士兵按钮
+        y_offset += 45
+        
+        # 士兵数量滑块和按钮
         soldier_cost = UNIT_CONFIG["soldier_cost"]
-        soldier_text = f"士兵 ({soldier_cost}金币)"
-        soldier_enabled = city.owner.gold >= soldier_cost
+        max_soldiers = city.owner.gold // soldier_cost if soldier_cost > 0 else 0
+        soldier_quantity = 0 if max_soldiers <= 0 else max(1, min(self.city_soldier_quantity, max_soldiers))
+        self.city_soldier_quantity = max(1, soldier_quantity) if max_soldiers > 0 else 1
+        quantity_label = self.font_manager.render_text(
+            f"士兵数量: {soldier_quantity}/{max_soldiers}", 'small', COLORS['BLACK']
+        )
+        surface.blit(quantity_label, (panel_x + 20, y_offset))
+        y_offset += 20
+        soldier_slider = Slider(
+            rect=pygame.Rect(panel_x + 20, y_offset, 250, 12),
+            min_value=1,
+            max_value=max(1, max_soldiers),
+            value=max(1, soldier_quantity),
+            callback=self._set_city_soldier_quantity,
+            label="city_soldier_quantity"
+        )
+        self._draw_slider(surface, soldier_slider)
+        if max_soldiers > 0:
+            self.sliders.append(soldier_slider)
+        y_offset += 24
+        
+        soldier_text = f"生产士兵 x{soldier_quantity} ({soldier_quantity * soldier_cost}金币)"
+        soldier_enabled = max_soldiers > 0
         soldier_button = Button(
-            rect=pygame.Rect(panel_x + 150, y_offset, 120, 30),
+            rect=pygame.Rect(panel_x + 20, y_offset, 250, 30),
             text=soldier_text,
-            callback=lambda: self._build_unit(city, UnitType.SOLDIER),
+            callback=lambda: self._build_unit(city, UnitType.SOLDIER, soldier_quantity),
             enabled=soldier_enabled,
             disabled_message=f"金币不足：生产士兵需要 {soldier_cost} 金币，当前 {city.owner.gold}"
         )
@@ -260,6 +337,32 @@ class UISystem:
         text = self.font_manager.render_text(button.text, 'small', text_color)
         text_rect = text.get_rect(center=button.rect.center)
         surface.blit(text, text_rect)
+    
+    def _draw_slider(self, surface: pygame.Surface, slider: Slider):
+        """绘制点击式滑块。"""
+        pygame.draw.rect(surface, COLORS['DARK_GRAY'], slider.rect)
+        pygame.draw.rect(surface, COLORS['BLACK'], slider.rect, 1)
+        if slider.max_value <= slider.min_value:
+            ratio = 1.0
+        else:
+            ratio = (slider.value - slider.min_value) / (slider.max_value - slider.min_value)
+        handle_x = slider.rect.x + int(max(0.0, min(1.0, ratio)) * slider.rect.width)
+        handle_rect = pygame.Rect(handle_x - 4, slider.rect.y - 4, 8, slider.rect.height + 8)
+        pygame.draw.rect(surface, COLORS['YELLOW'], handle_rect)
+        pygame.draw.rect(surface, COLORS['BLACK'], handle_rect, 1)
+    
+    def _set_city_soldier_quantity(self, value: int):
+        self.city_soldier_quantity = value
+    
+    def _set_move_soldier_quantity(self, value: int):
+        self.move_soldier_quantity = value
+    
+    def _slider_value_from_pos(self, slider: Slider, pos: tuple) -> int:
+        if slider.max_value <= slider.min_value:
+            return slider.min_value
+        ratio = (pos[0] - slider.rect.x) / max(1, slider.rect.width)
+        ratio = max(0.0, min(1.0, ratio))
+        return int(round(slider.min_value + ratio * (slider.max_value - slider.min_value)))
     
     def _render_message_log(self, surface: pygame.Surface):
         """渲染底部消息栏。"""
@@ -361,6 +464,12 @@ class UISystem:
     
     def handle_click(self, pos: tuple) -> bool:
         """处理UI点击事件"""
+        # 检查滑块
+        for slider in self.sliders:
+            if slider.rect.inflate(8, 12).collidepoint(pos):
+                slider.callback(self._slider_value_from_pos(slider, pos))
+                return True
+        
         # 检查常规按钮
         for button in self.buttons:
             if button.rect.collidepoint(pos):
@@ -394,10 +503,10 @@ class UISystem:
         if hasattr(self, '_temp_city_buttons'):
             self._temp_city_buttons = []
     
-    def _build_unit(self, city: City, unit_type: UnitType):
+    def _build_unit(self, city: City, unit_type: UnitType, quantity: int = 1):
         """建造单位(需要回调到主系统)"""
         if hasattr(self, 'on_build_unit'):
-            self.on_build_unit(city.id, unit_type)
+            self.on_build_unit(city.id, unit_type, quantity)
     
     def _build_city(self):
         """建立城市(需要回调到主系统)"""

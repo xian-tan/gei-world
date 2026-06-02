@@ -84,7 +84,7 @@ def main():
         # 如果有城市，尝试建造单位
         if not actions_taken and current_player.cities:
             for city in current_player.cities:
-                if city.owner.gold >= 30:  # 士兵成本
+                if city.owner.gold >= 1:  # 士兵成本
                     action = GameAction(
                         player_id=current_player.id,
                         action_type=ActionType.BUILD_UNIT,
