@@ -1,8 +1,9 @@
 """
 地图渲染系统
 """
+import math
 import pygame
-from typing import Dict, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple, Set
 
 import sys
 import os
@@ -33,6 +34,7 @@ class RenderSystem:
         self.hovered_tile = None
         self.selected_unit_id = None  # 添加选中单位ID
         self.reachable_tiles: Set[HexCoord] = set()
+        self.path_preview: List[HexCoord] = []
         self.minimap_rect: Optional[pygame.Rect] = None
         
     def set_selected_unit(self, unit_id: str):
@@ -43,6 +45,15 @@ class RenderSystem:
         """清除选中的单位"""
         self.selected_unit_id = None
         self.clear_reachable_tiles()
+        self.clear_path_preview()
+    
+    def set_path_preview(self, path: List[HexCoord]):
+        """设置移动路径预览。"""
+        self.path_preview = list(path or [])
+    
+    def clear_path_preview(self):
+        """清除移动路径预览。"""
+        self.path_preview.clear()
     
     def set_reachable_tiles(self, reachable_tiles: Set[HexCoord]):
         """设置当前选中单位的可达地块高亮。"""
@@ -105,6 +116,41 @@ class RenderSystem:
             
             self._render_tile(surface, tile, screen_x, screen_y, 
                             coord in visible_tiles, coord in explored_tiles)
+        
+        self._render_path_preview(surface, visible_tiles)
+    
+    def _render_path_preview(self, surface: pygame.Surface, visible_tiles: Set[HexCoord]):
+        """用虚线绘制当前移动路径预览。"""
+        if len(self.path_preview) < 2:
+            return
+        points = []
+        for coord in self.path_preview:
+            if coord not in visible_tiles:
+                return
+            world_x, world_y = HexRenderer.hex_to_pixel(coord.q, coord.r, OFFSET_X, OFFSET_Y)
+            points.append(self.world_to_screen(world_x, world_y))
+        for start, end in zip(points, points[1:]):
+            self._draw_dashed_line(surface, COLORS['YELLOW'], start, end, width=2)
+    
+    def _draw_dashed_line(self, surface: pygame.Surface, color: tuple, start: tuple,
+                          end: tuple, width: int = 1, dash_length: int = 8, gap_length: int = 5):
+        """绘制虚线。"""
+        start_x, start_y = start
+        end_x, end_y = end
+        dx = end_x - start_x
+        dy = end_y - start_y
+        distance = math.hypot(dx, dy)
+        if distance <= 0:
+            return
+        step_x = dx / distance
+        step_y = dy / distance
+        current = 0
+        while current < distance:
+            segment_end = min(current + dash_length, distance)
+            segment_start_point = (int(start_x + step_x * current), int(start_y + step_y * current))
+            segment_end_point = (int(start_x + step_x * segment_end), int(start_y + step_y * segment_end))
+            pygame.draw.line(surface, color, segment_start_point, segment_end_point, width)
+            current += dash_length + gap_length
     
     def _render_tile(self, surface: pygame.Surface, tile: Tile, 
                     screen_x: int, screen_y: int, is_visible: bool, is_explored: bool):

@@ -164,16 +164,24 @@ class GameEngine:
         except (TypeError, IndexError):
             return self._fail("移动失败：目标位置格式错误")
         
+        movement_paths = {}
         for moving_unit in units:
             move_failure = self.unit_system.get_move_failure_reason(moving_unit, target_coord, self.map_tiles)
             if move_failure:
                 return self._fail(move_failure)
+            path = self.unit_system.find_movement_path(moving_unit, target_coord, self.map_tiles)
+            if not path:
+                return self._fail("移动失败：目标不可达，请选择黄色高亮范围内的地块")
+            movement_paths[moving_unit.id] = path
         
         # 先移动所有选中的单位，再统一结算战斗/攻城
         moved_any = False
         for moving_unit in units:
             moved_any = self.unit_system.move_unit(moving_unit, target_coord, self.map_tiles) or moved_any
         if moved_any:
+            for moving_unit in units:
+                self._occupy_intermediate_path_tiles(moving_unit, movement_paths.get(moving_unit.id, []))
+            
             # 检查是否需要战斗
             if self.combat_system.check_for_combat(target_coord, self.map_tiles):
                 self._resolve_combat_at_position(target_coord, acting_player)
@@ -280,6 +288,20 @@ class GameEngine:
         self._check_game_over()
         
         return True
+    
+    def _occupy_intermediate_path_tiles(self, unit, path: List[HexCoord]):
+        """士兵沿路径占领中间普通地块，不处理终点战斗/攻城。"""
+        if unit.unit_type != UnitType.SOLDIER:
+            return
+        for coord in path[1:-1]:
+            tile = self.map_tiles.get(coord)
+            if not tile or tile.terrain_type != TerrainType.LAND:
+                continue
+            if tile.city and tile.city.owner != unit.owner:
+                continue
+            if any(other.owner != unit.owner for other in tile.units):
+                continue
+            self.combat_system.occupy_tile(unit, coord, self.map_tiles)
     
     def _resolve_combat_at_position(self, position: HexCoord, attacking_player: Player):
         """解决指定位置的战斗"""

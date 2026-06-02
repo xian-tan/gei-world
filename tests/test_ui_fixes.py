@@ -193,6 +193,47 @@ def test_ui_fixes():
         raise
 
 
+def test_path_preview_state_and_hover_path():
+    """测试路径预览状态和悬停路径生成。"""
+    from ui.client_controller import UIClient
+    from src.models import HexCoord, UnitType, TerrainType
+    from ui.hex_renderer import HexRenderer
+    from ui.ui_config import OFFSET_X, OFFSET_Y
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "AI玩家"], 123)
+    player = client.game_engine.get_current_player()
+    for unit in list(player.units):
+        client.game_engine.unit_system.remove_unit(unit, client.game_engine.map_tiles)
+    start = HexCoord(0, 0)
+    middle = HexCoord(1, 0)
+    target = HexCoord(2, 0)
+    for coord in [start, middle, target]:
+        client.game_engine.map_tiles[coord].terrain_type = TerrainType.LAND
+    soldier = client.game_engine.unit_system.create_unit(UnitType.SOLDIER, player, start)
+    client.game_engine.map_tiles[start].units.append(soldier)
+    player.units.append(soldier)
+    client._center_camera_on_map()
+    client._select_unit(soldier)
+    
+    path = [start, middle, target]
+    client.render_system.set_path_preview(path)
+    assert client.render_system.path_preview == path
+    client.render_system.clear_path_preview()
+    assert not client.render_system.path_preview
+    
+    world_x, world_y = HexRenderer.hex_to_pixel(target.q, target.r, OFFSET_X, OFFSET_Y)
+    client.input_system.mouse_pos = client.camera_system.world_to_screen(world_x, world_y)
+    visible_tiles = client.game_engine.vision_system.get_visible_tiles(player.id)
+    visible_tiles.update(path)
+    client._update_hover_path_preview(visible_tiles)
+    assert client.render_system.path_preview == path
+    surface = pygame.Surface((800, 600))
+    client.render_system.render_map(surface, client.game_engine.map_tiles, visible_tiles, player.explored_tiles, player)
+
+
+
 def test_selection_cycle_build_city_and_minimap():
     """测试同格循环选择、B 建城、右键取消、小地图和移动力耗尽取消。"""
     from ui.client_controller import UIClient
@@ -400,6 +441,7 @@ def test_start_menu_and_game_over_keys():
 
 if __name__ == "__main__":
     test_ui_fixes()
+    test_path_preview_state_and_hover_path()
     test_selection_cycle_build_city_and_minimap()
     test_batch_soldier_production_and_movement()
     test_input_system_slider_drag_captures_mouse()

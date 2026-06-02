@@ -2,7 +2,7 @@
 单位系统 - 负责单位创建、移动、管理
 """
 from collections import deque
-from typing import List, Optional
+from typing import Callable, List, Optional
 from ..models import Unit, UnitType, Player, HexCoord, Tile
 from ..config import UNIT_CONFIG
 
@@ -80,12 +80,14 @@ class UnitSystem:
             return "移动失败：目标不在地图内"
         if unit.movement_points <= 0:
             return "移动失败：该单位本回合移动力已用完，请结束回合恢复"
-        movement_cost = self._find_movement_cost(
-            unit.position, target_position, unit.movement_points, map_tiles
-        )
-        if movement_cost is None:
+        path = self.find_movement_path(unit, target_position, map_tiles)
+        if path is None:
             return "移动失败：目标不可达，请选择黄色高亮范围内的地块"
         return None
+    
+    def find_movement_path(self, unit: Unit, target_position: HexCoord, map_tiles: dict) -> Optional[List[HexCoord]]:
+        """返回单位当前移动力内到目标的最短路径，包含起点和终点。"""
+        return self._find_movement_path(unit.position, target_position, unit.movement_points, map_tiles)
     
     def get_reachable_tiles(self, unit: Unit, map_tiles: dict) -> List[HexCoord]:
         """获取单位当前移动力内真实可达的地块。"""
@@ -100,8 +102,26 @@ class UnitSystem:
     def _find_movement_cost(self, start: HexCoord, target: HexCoord,
                             max_movement: int, map_tiles: dict) -> Optional[int]:
         """按地形规则查找移动消耗。"""
+        path = self._find_movement_path(start, target, max_movement, map_tiles)
+        if path is None:
+            return None
         if start == target:
             return 0
+        start_tile = map_tiles.get(start)
+        target_tile = map_tiles.get(target)
+        if not start_tile or not target_tile:
+            return None
+        start_is_ocean = start_tile.terrain_type.value == "ocean"
+        target_is_ocean = target_tile.terrain_type.value == "ocean"
+        if start_is_ocean or target_is_ocean:
+            return max_movement
+        return len(path) - 1
+    
+    def _find_movement_path(self, start: HexCoord, target: HexCoord,
+                            max_movement: int, map_tiles: dict) -> Optional[List[HexCoord]]:
+        """按地形规则查找最短路径。"""
+        if start == target:
+            return [start]
         if max_movement <= 0:
             return None
         
@@ -114,16 +134,47 @@ class UnitSystem:
         target_is_ocean = target_tile.terrain_type.value == "ocean"
         
         if not start_is_ocean and not target_is_ocean:
-            return self._find_land_path_distance(start, target, max_movement, map_tiles)
+            return self._find_shortest_path(
+                start, target, max_movement, map_tiles,
+                lambda coord, tile: tile.terrain_type.value != "ocean"
+            )
         
         # 陆地下海：必须把海格作为最终落点，并清空全部移动力
         if not start_is_ocean and target_is_ocean:
-            can_embark = self._can_reach_ocean_as_final_step(start, target, max_movement, map_tiles)
-            return max_movement if can_embark else None
+            return self._find_shortest_path(
+                start, target, max_movement, map_tiles,
+                lambda coord, tile: (coord == target and tile.terrain_type.value == "ocean")
+                or tile.terrain_type.value != "ocean"
+            )
         
         # 海面移动力减半；最少允许移动 1 格，避免低移动力单位困死海上
         sea_budget = max(1, max_movement // 2)
-        return max_movement if self._can_reach_with_any_terrain(start, target, sea_budget, map_tiles) else None
+        return self._find_shortest_path(
+            start, target, sea_budget, map_tiles,
+            lambda coord, tile: True
+        )
+    
+    def _find_shortest_path(self, start: HexCoord, target: HexCoord, max_steps: int,
+                            map_tiles: dict, can_enter: Callable[[HexCoord, Tile], bool]) -> Optional[List[HexCoord]]:
+        """查找步数限制内的最短路径。"""
+        queue = deque([(start, [start])])
+        visited = {start}
+        while queue:
+            current, path = queue.popleft()
+            if len(path) - 1 >= max_steps:
+                continue
+            for neighbor in current.neighbors():
+                if neighbor in visited:
+                    continue
+                tile = map_tiles.get(neighbor)
+                if not tile or not can_enter(neighbor, tile):
+                    continue
+                next_path = path + [neighbor]
+                if neighbor == target:
+                    return next_path
+                visited.add(neighbor)
+                queue.append((neighbor, next_path))
+        return None
     
     def _find_land_path_distance(self, start: HexCoord, target: HexCoord,
                                  max_distance: int, map_tiles: dict) -> Optional[int]:

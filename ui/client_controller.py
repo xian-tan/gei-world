@@ -283,6 +283,7 @@ class UIClient:
             visible_tiles = self.game_engine.vision_system.get_visible_tiles(current_player.id)
             explored_tiles = self.game_engine.vision_system.get_explored_tiles(current_player.id)
             
+            self._update_hover_path_preview(visible_tiles)
             self.render_system.render_map(
                 self.screen,
                 self.game_engine.map_tiles,
@@ -290,11 +291,6 @@ class UIClient:
                 explored_tiles,
                 current_player
             )
-            
-            # 更新悬停地块
-            mouse_pos = self.input_system.mouse_pos
-            hovered_coord = self._get_tile_at_screen_pos(mouse_pos[0], mouse_pos[1])
-            self.render_system.hovered_tile = hovered_coord
             
             # 渲染UI
             self.ui_system.render(self.screen, game_state)
@@ -329,6 +325,29 @@ class UIClient:
             message = self.font_manager.render_text(self.ui_system.messages[-1], 'small', COLORS['LIGHT_GRAY'])
             message_rect = message.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 75))
             self.screen.blit(message, message_rect)
+    
+    def _update_hover_path_preview(self, visible_tiles: Set[HexCoord]):
+        """根据鼠标悬停位置更新移动路径预览。"""
+        mouse_pos = self.input_system.mouse_pos
+        hovered_coord = self._get_tile_at_screen_pos(mouse_pos[0], mouse_pos[1])
+        self.render_system.hovered_tile = hovered_coord
+        self.render_system.clear_path_preview()
+        if not hovered_coord or hovered_coord not in visible_tiles:
+            return
+        if not self.input_system.is_unit_selected():
+            return
+        if hovered_coord not in self.render_system.reachable_tiles:
+            return
+        unit = self._find_unit_by_id(self.input_system.get_selected_unit_id())
+        if not unit or hovered_coord == unit.position:
+            return
+        path = self.game_engine.unit_system.find_movement_path(
+            unit,
+            hovered_coord,
+            self.game_engine.map_tiles
+        )
+        if path:
+            self.render_system.set_path_preview(path)
     
     def _get_game_state(self) -> Dict[str, Any]:
         """获取游戏状态快照"""

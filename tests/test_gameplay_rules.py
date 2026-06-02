@@ -61,6 +61,69 @@ class TestGameplayRules(unittest.TestCase):
         self.assertIn("unit_destroyed", event_types)
         self.assertEqual(len(engine.map_tiles[target].units), 0)
 
+    def test_multi_tile_move_uses_path_and_occupies_intermediate_tiles(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        player1, player2 = engine.player_system.players
+        for unit in list(player1.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        start = HexCoord(0, 0)
+        middle = HexCoord(1, 0)
+        target = HexCoord(2, 0)
+        for coord in [start, middle, target]:
+            engine.map_tiles[coord].terrain_type = TerrainType.LAND
+            engine.map_tiles[coord].owner = player2
+
+        soldier = engine.unit_system.create_unit(UnitType.SOLDIER, player1, start)
+        engine.map_tiles[start].units.append(soldier)
+        player1.units.append(soldier)
+
+        path = engine.unit_system.find_movement_path(soldier, target, engine.map_tiles)
+        self.assertEqual(path, [start, middle, target])
+        result = engine.execute_action_with_result(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.MOVE_UNIT,
+            params={"unit_id": soldier.id, "target": [target.q, target.r]}
+        ))
+
+        self.assertTrue(result.success)
+        self.assertEqual(soldier.position, target)
+        self.assertEqual(engine.map_tiles[middle].owner, player1)
+        self.assertEqual(engine.map_tiles[target].owner, player1)
+
+    def test_movement_path_avoids_blocked_ocean_on_land(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+
+        player1 = engine.player_system.players[0]
+        for unit in list(player1.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        start = HexCoord(0, 0)
+        blocker = HexCoord(1, 0)
+        target = HexCoord(2, 0)
+        detour_a = HexCoord(1, -1)
+        detour_b = HexCoord(2, -1)
+        for coord in [start, target, detour_a, detour_b]:
+            self.assertIn(coord, engine.map_tiles)
+            engine.map_tiles[coord].terrain_type = TerrainType.LAND
+        engine.map_tiles[blocker].terrain_type = TerrainType.OCEAN
+
+        soldier = engine.unit_system.create_unit(UnitType.SOLDIER, player1, start)
+        soldier.movement_points = 3
+        soldier.max_movement_points = 3
+        engine.map_tiles[start].units.append(soldier)
+        player1.units.append(soldier)
+
+        path = engine.unit_system.find_movement_path(soldier, target, engine.map_tiles)
+        self.assertIsNotNone(path)
+        self.assertEqual(path[0], start)
+        self.assertEqual(path[-1], target)
+        self.assertNotIn(blocker, path)
+        self.assertEqual(len(path) - 1, 3)
+
     def test_soldier_cost_is_one_and_can_build_with_one_gold(self):
         engine = GameEngine()
         self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
