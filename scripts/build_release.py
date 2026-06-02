@@ -21,6 +21,34 @@ def _safe_version(version: str) -> str:
     return "".join(char if char.isalnum() or char in ".-_" else "-" for char in version)
 
 
+def _archive_package(package_source: Path, archive_base: Path) -> str:
+    """Create a zip archive. Use ditto for macOS .app bundles to preserve bundle metadata."""
+    if platform.system() == "Darwin" and package_source.suffix == ".app":
+        subprocess.run(["xattr", "-cr", str(package_source)], check=False)
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(package_source)], check=True)
+        archive_path = Path(f"{archive_base}.zip")
+        subprocess.run(
+            [
+                "ditto",
+                "-c",
+                "-k",
+                "--sequesterRsrc",
+                "--keepParent",
+                package_source.name,
+                str(archive_path),
+            ],
+            cwd=package_source.parent,
+            check=True,
+        )
+        return str(archive_path)
+    return shutil.make_archive(
+        str(archive_base),
+        "zip",
+        root_dir=package_source.parent,
+        base_dir=package_source.name,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build GeiWorld release artifact")
     parser.add_argument("--version", default="dev", help="Version or git tag used in artifact name")
@@ -61,12 +89,7 @@ def main() -> int:
     platform_label = _platform_name()
     version = _safe_version(args.version)
     archive_base = artifact_dir / f"{app_name}-{platform_label}-{version}"
-    archive_path = shutil.make_archive(
-        str(archive_base),
-        "zip",
-        root_dir=package_source.parent,
-        base_dir=package_source.name,
-    )
+    archive_path = _archive_package(package_source, archive_base)
     print(f"Built artifact: {archive_path}")
     return 0
 

@@ -17,6 +17,15 @@
 
 下载后解压，运行其中的 `GeiWorld` 应用或可执行文件即可。
 
+macOS 包未经过 Apple Developer ID 公证。如果提示“已损坏”或无法打开，可在终端执行一次：
+
+```bash
+xattr -dr com.apple.quarantine /path/to/GeiWorld.app
+open /path/to/GeiWorld.app
+```
+
+其中 `/path/to/GeiWorld.app` 替换为解压后的实际路径。
+
 ## 从源码运行
 
 建议使用 Python 3.11+。
