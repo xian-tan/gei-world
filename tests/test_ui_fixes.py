@@ -302,8 +302,42 @@ def test_batch_soldier_production_and_movement():
     })
     city_sliders = [slider for slider in client.ui_system.sliders if slider.label == "city_soldier_quantity"]
     assert city_sliders
-    client.ui_system.handle_click(city_sliders[0].rect.midright)
-    assert client.ui_system.city_soldier_quantity >= 1
+    city_slider = city_sliders[0]
+    assert client.ui_system.handle_mouse_down(city_slider.rect.midleft)
+    assert client.ui_system.active_slider == city_slider
+    client.ui_system.handle_mouse_drag(city_slider.rect.midright)
+    client.ui_system.handle_mouse_up(city_slider.rect.midright)
+    assert client.ui_system.active_slider is None
+    assert client.ui_system.city_soldier_quantity == city_slider.max_value
+
+
+
+def test_input_system_slider_drag_captures_mouse():
+    """测试拖动滑块时不会触发摄像机拖拽或地图点击。"""
+    from ui.systems.input_system import InputSystem
+    
+    class Event:
+        def __init__(self, pos, button=1):
+            self.pos = pos
+            self.button = button
+    
+    input_system = InputSystem()
+    calls = {"down": 0, "drag": 0, "up": 0, "camera": 0, "tile": 0}
+    input_system.on_mouse_down = lambda pos: calls.__setitem__("down", calls["down"] + 1) or True
+    input_system.on_mouse_drag = lambda pos: calls.__setitem__("drag", calls["drag"] + 1) or True
+    input_system.on_mouse_up = lambda pos: calls.__setitem__("up", calls["up"] + 1) or True
+    input_system.on_camera_move = lambda dx, dy: calls.__setitem__("camera", calls["camera"] + 1)
+    input_system.on_tile_clicked = lambda pos: calls.__setitem__("tile", calls["tile"] + 1)
+    
+    input_system._handle_mouse_down(Event((10, 10)))
+    input_system._handle_mouse_motion(Event((40, 10)))
+    input_system._handle_mouse_up(Event((80, 10)))
+    
+    assert calls["down"] == 1
+    assert calls["drag"] == 1
+    assert calls["up"] == 1
+    assert calls["camera"] == 0
+    assert calls["tile"] == 0
 
 
 
@@ -368,4 +402,5 @@ if __name__ == "__main__":
     test_ui_fixes()
     test_selection_cycle_build_city_and_minimap()
     test_batch_soldier_production_and_movement()
+    test_input_system_slider_drag_captures_mouse()
     test_start_menu_and_game_over_keys()

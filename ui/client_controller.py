@@ -63,6 +63,9 @@ class UIClient:
         self.input_system.on_camera_move = self._handle_camera_move
         self.input_system.on_zoom = self._handle_zoom
         self.input_system.on_key_pressed = self._handle_key_press
+        self.input_system.on_mouse_down = self.ui_system.handle_mouse_down
+        self.input_system.on_mouse_drag = self.ui_system.handle_mouse_drag
+        self.input_system.on_mouse_up = self.ui_system.handle_mouse_up
     
     def _setup_ui_callbacks(self):
         """设置UI系统回调"""

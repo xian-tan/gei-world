@@ -57,6 +57,7 @@ class UISystem:
         self.messages: List[str] = []
         self.city_soldier_quantity = 1
         self.move_soldier_quantity = 1
+        self.active_slider = None
         self.on_build_city = None
         
     def add_message(self, message: str):
@@ -364,6 +365,35 @@ class UISystem:
         ratio = max(0.0, min(1.0, ratio))
         return int(round(slider.min_value + ratio * (slider.max_value - slider.min_value)))
     
+    def _update_slider_from_pos(self, slider: Slider, pos: tuple):
+        value = self._slider_value_from_pos(slider, pos)
+        slider.value = value
+        slider.callback(value)
+    
+    def handle_mouse_down(self, pos: tuple) -> bool:
+        """左键按下时尝试捕获滑块。"""
+        for slider in reversed(self.sliders):
+            if slider.rect.inflate(8, 12).collidepoint(pos):
+                self.active_slider = slider
+                self._update_slider_from_pos(slider, pos)
+                return True
+        return False
+    
+    def handle_mouse_drag(self, pos: tuple) -> bool:
+        """拖动当前捕获的滑块。"""
+        if not self.active_slider:
+            return False
+        self._update_slider_from_pos(self.active_slider, pos)
+        return True
+    
+    def handle_mouse_up(self, pos: tuple) -> bool:
+        """释放当前捕获的滑块。"""
+        if not self.active_slider:
+            return False
+        self._update_slider_from_pos(self.active_slider, pos)
+        self.active_slider = None
+        return True
+    
     def _render_message_log(self, surface: pygame.Surface):
         """渲染底部消息栏。"""
         if not self.messages:
@@ -465,10 +495,9 @@ class UISystem:
     def handle_click(self, pos: tuple) -> bool:
         """处理UI点击事件"""
         # 检查滑块
-        for slider in self.sliders:
-            if slider.rect.inflate(8, 12).collidepoint(pos):
-                slider.callback(self._slider_value_from_pos(slider, pos))
-                return True
+        if self.handle_mouse_down(pos):
+            self.handle_mouse_up(pos)
+            return True
         
         # 检查常规按钮
         for button in self.buttons:

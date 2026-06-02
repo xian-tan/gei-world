@@ -39,6 +39,9 @@ class InputSystem:
         self.on_camera_move = None
         self.on_zoom = None
         self.on_key_pressed = None
+        self.on_mouse_down = None
+        self.on_mouse_drag = None
+        self.on_mouse_up = None
     
     def handle_events(self, events):
         """处理pygame事件"""
@@ -72,6 +75,7 @@ class InputSystem:
         
         if event.button == 1:  # 左键
             self.mouse_pressed = True
+            self.mouse_captured_by_ui = bool(self.on_mouse_down and self.on_mouse_down(event.pos))
         elif event.button == 3:  # 右键
             if self.on_tile_right_clicked:
                 self.on_tile_right_clicked(event.pos)
@@ -79,7 +83,13 @@ class InputSystem:
     def _handle_mouse_up(self, event):
         """处理鼠标抬起"""
         if event.button == 1:  # 左键
+            was_captured = self.mouse_captured_by_ui
             self.mouse_pressed = False
+            self.mouse_captured_by_ui = False
+            if was_captured:
+                if self.on_mouse_up:
+                    self.on_mouse_up(event.pos)
+                return
             if self.on_tile_clicked:
                 self.on_tile_clicked(event.pos)
     
@@ -87,6 +97,12 @@ class InputSystem:
         """处理鼠标移动"""
         old_pos = self.mouse_pos
         self.mouse_pos = event.pos
+        
+        # 如果 UI 捕获了鼠标，优先交给 UI 拖动逻辑
+        if self.mouse_pressed and self.mouse_captured_by_ui:
+            if self.on_mouse_drag:
+                self.on_mouse_drag(event.pos)
+            return
         
         # 如果按住鼠标，进行摄像机拖拽
         if self.mouse_pressed and self.on_camera_move:
