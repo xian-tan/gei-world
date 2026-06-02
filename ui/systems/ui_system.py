@@ -58,6 +58,9 @@ class UISystem:
         self.city_soldier_quantity = 1
         self.move_soldier_quantity = 1
         self.active_slider = None
+        self.active_modal = None
+        self.modal_buttons = []
+        self.modal_rect = None
         self.on_build_city = None
         
     def add_message(self, message: str):
@@ -84,6 +87,71 @@ class UISystem:
         
         if game_state.get('game_over'):
             self._render_game_over_panel(surface, game_state)
+    
+    def show_modal(self, title: str, lines: List[str] = None, actions: List[Dict[str, Any]] = None):
+        """显示通用弹窗。actions: [{text, callback, color?, text_color?, enabled?}]。"""
+        self.active_modal = {
+            'title': title,
+            'lines': lines or [],
+            'actions': actions or []
+        }
+        self.modal_buttons = []
+        self.active_slider = None
+    
+    def close_modal(self):
+        """关闭通用弹窗。"""
+        self.active_modal = None
+        self.modal_buttons = []
+        self.modal_rect = None
+    
+    def has_active_modal(self) -> bool:
+        """是否存在顶层弹窗。"""
+        return self.active_modal is not None
+    
+    def render_modal(self, surface: pygame.Surface):
+        """渲染顶层通用弹窗。"""
+        if not self.active_modal:
+            return
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 120))
+        surface.blit(overlay, (0, 0))
+        
+        lines = self.active_modal.get('lines', [])
+        actions = self.active_modal.get('actions', [])
+        panel_width = 460
+        panel_height = max(170, 95 + len(lines) * 22 + max(1, len(actions)) * 38)
+        panel_height = min(panel_height, self.screen_height - 80)
+        panel_x = (self.screen_width - panel_width) // 2
+        panel_y = (self.screen_height - panel_height) // 2
+        self.modal_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
+        pygame.draw.rect(surface, COLORS['WHITE'], self.modal_rect)
+        pygame.draw.rect(surface, COLORS['BLACK'], self.modal_rect, 3)
+        
+        title = self.font_manager.render_text(self.active_modal.get('title', ''), 'large', COLORS['BLACK'])
+        title_rect = title.get_rect(center=(panel_x + panel_width // 2, panel_y + 30))
+        surface.blit(title, title_rect)
+        
+        y_offset = panel_y + 65
+        for line in lines:
+            text = self.font_manager.render_text(line, 'small', COLORS['DARK_GRAY'])
+            surface.blit(text, (panel_x + 24, y_offset))
+            y_offset += 22
+        
+        self.modal_buttons = []
+        y_offset += 8
+        for action in actions:
+            button = Button(
+                rect=pygame.Rect(panel_x + 70, y_offset, panel_width - 140, 30),
+                text=action.get('text', ''),
+                callback=action.get('callback'),
+                enabled=action.get('enabled', True),
+                color=action.get('color', COLORS['LIGHT_GRAY']),
+                text_color=action.get('text_color', COLORS['BLACK']),
+                disabled_message=action.get('disabled_message', '')
+            )
+            self._draw_button(surface, button)
+            self.modal_buttons.append(button)
+            y_offset += 38
     
     def _render_info_panel(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染信息面板"""
@@ -138,10 +206,12 @@ class UISystem:
             
             # 添加控制提示
             y_offset += 10
+            move_mode_active = game_state.get('move_mode_active', False)
             help_texts = [
                 "=== 控制说明 ===",
-                "左键: 选择/移动/切换",
-                "黄框: 可移动范围",
+                "左键: 选择/切换",
+                "Q: 进入/退出移动模式",
+                "黄框: 移动模式可达范围" if move_mode_active else "黄框: 按 Q 后显示",
                 "B/建城按钮: 移民建城",
                 "右键: 取消选择",
                 "城市: 生产单位"
@@ -443,7 +513,7 @@ class UISystem:
     def _render_turn_info(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染回合信息"""
         turn_number = game_state.get('turn_number', 1)
-        text = self.font_manager.render_text(f"回合 {turn_number}", 'medium', COLORS['BLACK'])
+        text = self.font_manager.render_text(f"回合 {turn_number}", 'medium', COLORS['WHITE'])
         surface.blit(text, (10, 10))
         
         # 结束回合按钮
@@ -494,6 +564,17 @@ class UISystem:
     
     def handle_click(self, pos: tuple) -> bool:
         """处理UI点击事件"""
+        # 顶层弹窗优先处理，并拦截底层点击
+        if self.active_modal:
+            for button in self.modal_buttons:
+                if button.rect.collidepoint(pos):
+                    if button.enabled and button.callback:
+                        button.callback()
+                    elif button.disabled_message:
+                        self.add_message(button.disabled_message)
+                    return True
+            return True
+        
         # 检查滑块
         if self.handle_mouse_down(pos):
             self.handle_mouse_up(pos)

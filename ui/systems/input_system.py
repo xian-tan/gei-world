@@ -31,6 +31,7 @@ class InputSystem:
         self.selected_city_id = None
         self.mouse_pos = (0, 0)
         self.mouse_pressed = False
+        self.mouse_captured_by_ui = False
         self.keys_pressed = set()
         
         # 事件回调

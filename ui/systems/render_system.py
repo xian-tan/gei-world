@@ -274,8 +274,10 @@ class RenderSystem:
             COLORS['PLAYER_4']
         ]
         
-        # 简单的玩家ID到颜色的映射
-        player_index = hash(player.id) % len(player_colors)
+        try:
+            player_index = int(str(player.id).split('_')[-1]) % len(player_colors)
+        except (TypeError, ValueError):
+            player_index = sum(ord(char) for char in str(player.id)) % len(player_colors)
         return player_colors[player_index]
     
     def _get_unit_color(self, unit) -> Tuple[int, int, int]:

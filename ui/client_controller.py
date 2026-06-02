@@ -37,7 +37,8 @@ class UIClient:
         # 游戏引擎
         self.game_engine = GameEngine()
         self.ai_manager = AIManager()
-        self.save_system = GameSaveSystem()
+        self.save_system = GameSaveSystem(os.path.join(project_root, "saves"))
+        self.save_slots = [f"slot_{index}" for index in range(1, 6)]
         
         # UI系统
         self.render_system = RenderSystem()
@@ -48,6 +49,7 @@ class UIClient:
         # 状态
         self.running = True
         self.game_started = False
+        self.move_mode_active = False
         
         # 设置输入回调
         self._setup_input_callbacks()
@@ -79,6 +81,7 @@ class UIClient:
     
     def _clear_ui_selection_state(self):
         """清理 UI 选中状态、城市面板和可达高亮。"""
+        self.move_mode_active = False
         self.input_system.set_mode(InputMode.NORMAL)
         self.ui_system._close_city_panel()
         self.render_system.selected_tile = None
@@ -164,13 +167,14 @@ class UIClient:
             self.game_engine = new_engine
             self.game_started = True
             self._clear_ui_selection_state()
+            self.ui_system.close_modal()
             self._setup_ai_players()
             
             # 将摄像机移动到地图中心
             self._center_camera_on_map()
             
             self._notify(f"游戏开始！玩家: {', '.join(player_names)}")
-            self._notify("新手提示：左键选中初始移民，黄色边框是可移动范围。")
+            self._notify("新手提示：左键选中单位或城市，按 Q 进入移动模式。")
             self._notify("移动到合适陆地后，按 B 或点击建城按钮建立第一座城市。")
             self._notify("目标：建城、生产士兵，探索并占领对手城市。")
             return True
@@ -201,12 +205,29 @@ class UIClient:
     
     def _process_ai_turns(self):
         """自动处理连续 AI 回合，直到轮回人类玩家或游戏结束。"""
-        safety_limit = 30
+        safety_limit = 200
+        per_ai_turn_limit = 20
         actions_taken = 0
+        actions_this_turn = 0
+        active_ai_player_id = None
         while not self.game_engine.game_over and actions_taken < safety_limit:
             current_player = self.game_engine.get_current_player()
             if not current_player or not self.ai_manager.is_ai_player(current_player.id):
                 break
+            if active_ai_player_id != current_player.id:
+                active_ai_player_id = current_player.id
+                actions_this_turn = 0
+            
+            if actions_this_turn >= per_ai_turn_limit:
+                result = self.game_engine.execute_action_with_result(GameAction(
+                    player_id=current_player.id,
+                    action_type=ActionType.END_TURN,
+                    params={}
+                ))
+                actions_taken += 1
+                actions_this_turn = 0
+                self._notify_action_result(result, current_player.name)
+                continue
             
             action = self.ai_manager.get_ai_action(current_player.id, self.game_engine)
             if not action:
@@ -218,14 +239,29 @@ class UIClient:
             
             result = self.game_engine.execute_action_with_result(action)
             actions_taken += 1
+            actions_this_turn += 1
             self._notify_action_result(result, current_player.name)
-            if not result.success and action.action_type != ActionType.END_TURN:
-                self.game_engine.execute_action(GameAction(
+            if action.action_type == ActionType.END_TURN:
+                actions_this_turn = 0
+            elif not result.success:
+                result = self.game_engine.execute_action_with_result(GameAction(
                     player_id=current_player.id,
                     action_type=ActionType.END_TURN,
                     params={}
                 ))
                 actions_taken += 1
+                actions_this_turn = 0
+                self._notify_action_result(result, current_player.name)
+        
+        current_player = self.game_engine.get_current_player()
+        if (not self.game_engine.game_over and current_player and
+                self.ai_manager.is_ai_player(current_player.id)):
+            result = self.game_engine.execute_action_with_result(GameAction(
+                player_id=current_player.id,
+                action_type=ActionType.END_TURN,
+                params={}
+            ))
+            self._notify_action_result(result, current_player.name)
             
     def _center_camera_on_map(self):
         """将摄像机居中到地图"""
@@ -300,9 +336,11 @@ class UIClient:
                 visible_tiles,
                 explored_tiles
             )
+            self.ui_system.render_modal(self.screen)
         else:
             # 显示开始界面
             self._render_start_screen()
+            self.ui_system.render_modal(self.screen)
         
         pygame.display.flip()
     def _render_start_screen(self):
@@ -334,7 +372,7 @@ class UIClient:
         self.render_system.clear_path_preview()
         if not hovered_coord or hovered_coord not in visible_tiles:
             return
-        if not self.input_system.is_unit_selected():
+        if not self.input_system.is_unit_selected() or not self.move_mode_active:
             return
         if hovered_coord not in self.render_system.reachable_tiles:
             return
@@ -365,7 +403,8 @@ class UIClient:
             'selected_coord': selected_coord,
             'selected_tile': selected_tile,
             'selected_unit': selected_unit,
-            'selected_city': selected_city
+            'selected_city': selected_city,
+            'move_mode_active': self.move_mode_active
         }
     
     def _get_tile_at_screen_pos(self, screen_x: int, screen_y: int) -> Optional[HexCoord]:
@@ -401,7 +440,10 @@ class UIClient:
         if self.input_system.mode == InputMode.NORMAL:
             self._handle_normal_click(tile, current_player)
         elif self.input_system.mode == InputMode.UNIT_SELECTED:
-            self._handle_unit_selected_click(tile, current_player)
+            if self.move_mode_active:
+                self._handle_unit_move_click(tile, current_player)
+            else:
+                self._handle_unit_selected_click(tile, current_player)
         elif self.input_system.mode == InputMode.CITY_SELECTED:
             self._handle_city_selected_click(tile, current_player)
         
@@ -451,23 +493,25 @@ class UIClient:
         return True
     
     def _select_unit(self, unit):
-        """选中单位并刷新移动范围。"""
+        """选中单位，等待玩家按 Q 进入移动模式。"""
+        self.move_mode_active = False
         self.input_system.set_mode(InputMode.UNIT_SELECTED, unit.id)
         self.ui_system._close_city_panel()
         self.render_system.set_selected_unit(unit.id)
-        reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
-        self.render_system.set_reachable_tiles(set(reachable_tiles))
+        self.render_system.clear_reachable_tiles()
+        self.render_system.clear_path_preview()
         if unit.unit_type == UnitType.SETTLER:
-            self._notify(f"选中移民：移动力 {unit.movement_points}。左键移动，按 B 或点击建城按钮建城。")
+            self._notify(f"选中移民：移动力 {unit.movement_points}。按 Q 进入移动模式，按 B 或点击建城按钮建城。")
         elif unit.unit_type == UnitType.SOLDIER:
-            self._notify(f"选中士兵：移动力 {unit.movement_points}。左键移动/攻击，可占领敌方地块和城市。")
+            self._notify(f"选中士兵：移动力 {unit.movement_points}。按 Q 进入移动/攻击模式。")
         else:
-            self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})")
+            self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})，按 Q 进入移动模式。")
         if unit.movement_points <= 0:
             self._notify("该单位本回合移动力已用完，请点击结束回合恢复。")
     
     def _select_city(self, city, current_player):
         """选中城市并打开城市面板。"""
+        self.move_mode_active = False
         self.input_system.set_mode(InputMode.CITY_SELECTED, city.id)
         self.ui_system.show_city_panel_for(city)
         self.render_system.clear_selected_unit()
@@ -475,17 +519,21 @@ class UIClient:
         self._notify(f"选中城市：当前金币 {current_player.gold}。可在城市面板生产移民或士兵。")
     
     def _handle_unit_selected_click(self, tile, current_player):
-        """处理选中单位时的点击"""
+        """处理选中单位时的左键选择。"""
+        if not self._cycle_selectable_on_tile(tile, current_player):
+            self._clear_ui_selection_state()
+    
+    def _handle_unit_move_click(self, tile, current_player):
+        """处理移动模式下的单位移动点击。"""
         unit_id = self.input_system.get_selected_unit_id()
         unit = self._find_unit_by_id(unit_id)
         
         if not unit:
-            self.input_system.set_mode(InputMode.NORMAL)
+            self._clear_ui_selection_state()
             return
         
-        # 点击当前格时，在同格单位/城市之间循环选择
         if tile.coord == unit.position:
-            self._cycle_selectable_on_tile(tile, current_player)
+            self._notify("已在当前位置，选择黄色范围内的目标地块移动。")
             return
         
         moving_units = [unit]
@@ -507,7 +555,6 @@ class UIClient:
                 self._notify(move_failure)
                 return
         
-        # 移动单位到目标地块
         action = GameAction(
             player_id=current_player.id,
             action_type=ActionType.MOVE_UNIT,
@@ -548,9 +595,50 @@ class UIClient:
     
     def _handle_tile_right_click(self, screen_pos):
         """处理右键：取消当前选择。"""
-        if self.input_system.mode != InputMode.NORMAL or self.ui_system.show_city_panel or self.render_system.selected_tile:
+        if self.ui_system.has_active_modal():
+            self.ui_system.close_modal()
+            return
+        if self._has_cancelable_ui_state():
             self._clear_ui_selection_state()
             self._notify("已取消选择")
+    
+    def _has_cancelable_ui_state(self) -> bool:
+        """是否存在可先取消的 UI 状态。"""
+        return bool(
+            self.input_system.mode != InputMode.NORMAL
+            or self.ui_system.show_city_panel
+            or self.render_system.selected_tile
+            or self.render_system.selected_unit_id
+            or self.render_system.reachable_tiles
+            or self.render_system.path_preview
+            or self.move_mode_active
+        )
+    
+    def _show_exit_confirmation(self):
+        """显示退出确认弹窗。"""
+        self.ui_system.show_modal(
+            "确认退出",
+            ["确定要退出游戏吗？", "未保存的进度会丢失。"],
+            [
+                {
+                    'text': "取消",
+                    'callback': self.ui_system.close_modal,
+                    'color': COLORS['LIGHT_GRAY'],
+                    'text_color': COLORS['BLACK']
+                },
+                {
+                    'text': "退出游戏",
+                    'callback': self._confirm_exit_game,
+                    'color': COLORS['RED'],
+                    'text_color': COLORS['WHITE']
+                }
+            ]
+        )
+    
+    def _confirm_exit_game(self):
+        """确认退出游戏。"""
+        self.ui_system.close_modal()
+        self.running = False
     
     def _handle_camera_move(self, dx: int, dy: int):
         """处理摄像机移动"""
@@ -567,12 +655,15 @@ class UIClient:
             return
         
         if key == pygame.K_ESCAPE:
-            if not self.game_started or self.game_engine.game_over:
-                self.running = False
-            elif self.input_system.mode != InputMode.NORMAL:
+            if self.ui_system.has_active_modal():
+                self.ui_system.close_modal()
+            elif self.game_started and not self.game_engine.game_over and self._has_cancelable_ui_state():
                 self._clear_ui_selection_state()
             else:
-                self.running = False
+                self._show_exit_confirmation()
+            return
+        
+        if self.ui_system.has_active_modal():
             return
         
         if not self.game_started:
@@ -587,9 +678,41 @@ class UIClient:
                 self.start_game(["玩家1", "AI玩家"])
             return
         
+        if key == pygame.K_q:
+            self._toggle_move_mode()
+            return
+        
         if key == pygame.K_b:
             self._handle_build_city()
             return
+    
+    def _toggle_move_mode(self):
+        """切换选中单位的移动模式。"""
+        unit_id = self.input_system.get_selected_unit_id()
+        unit = self._find_unit_by_id(unit_id) if unit_id else None
+        current_player = self.game_engine.get_current_player()
+        if not unit or self.input_system.mode != InputMode.UNIT_SELECTED:
+            self._notify("请先左键选中一个单位，再按 Q 进入移动模式。")
+            return
+        if unit.owner != current_player:
+            self._notify("只能移动自己的单位。")
+            return
+        if self.move_mode_active:
+            self.move_mode_active = False
+            self.render_system.clear_reachable_tiles()
+            self.render_system.clear_path_preview()
+            self._notify("已退出移动模式。")
+            return
+        if unit.movement_points <= 0:
+            self._notify("该单位本回合移动力已用完，请点击结束回合恢复。")
+            return
+        reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
+        if not reachable_tiles:
+            self._notify("该单位当前没有可移动目标。")
+            return
+        self.move_mode_active = True
+        self.render_system.set_reachable_tiles(set(reachable_tiles))
+        self._notify("已进入移动模式：左键点击黄色范围内目标地块移动，按 Q 或右键取消。")
     
     def _handle_build_city(self):
         """处理移民建城。"""
@@ -653,11 +776,19 @@ class UIClient:
             self._clear_ui_selection_state()
             self._process_ai_turns()
     
-    def _handle_save_game(self):
-        """处理保存游戏"""
+    def _format_save_summary(self, save_info: Dict[str, Any]) -> str:
+        """格式化存档列表项。"""
+        timestamp = str(save_info.get('timestamp', '未知'))[:16].replace('T', ' ')
+        return f"{save_info.get('name', '未知')} | 回合 {save_info.get('turn', 0)} | {timestamp}"
+    
+    def _handle_save_game(self, save_name: str = None):
+        """处理保存游戏。无存档名时打开多存档槽位面板。"""
+        if save_name is None:
+            self._show_save_slots_modal()
+            return
         try:
-            save_name = "ui_save"
             success = self.save_system.save_game(self.game_engine, save_name)
+            self.ui_system.close_modal()
             if success:
                 self._notify(f"游戏已保存到 {save_name}.json")
             else:
@@ -665,10 +796,71 @@ class UIClient:
         except Exception as e:
             self._notify(f"保存游戏时出错: {e}")
     
-    def _handle_load_game(self):
-        """处理加载游戏。"""
+    def _show_save_slots_modal(self):
+        """显示固定多存档槽位。"""
+        saves_by_name = {save['name']: save for save in self.save_system.list_saves()}
+        actions = []
+        for index, save_name in enumerate(self.save_slots, start=1):
+            existing = saves_by_name.get(save_name)
+            label = f"保存槽 {index}：空"
+            if existing:
+                label = f"覆盖槽 {index}：{self._format_save_summary(existing)}"
+            actions.append({
+                'text': label,
+                'callback': lambda name=save_name: self._handle_save_game(name),
+                'color': COLORS['BLUE'],
+                'text_color': COLORS['WHITE']
+            })
+        actions.append({
+            'text': "取消",
+            'callback': self.ui_system.close_modal,
+            'color': COLORS['LIGHT_GRAY'],
+            'text_color': COLORS['BLACK']
+        })
+        self.ui_system.show_modal("保存游戏", ["选择一个槽位保存；已有存档会被覆盖。"], actions)
+    
+    def _handle_load_game(self, save_name: str = None):
+        """处理加载游戏。无存档名时打开存档列表。"""
+        if save_name is None:
+            self._show_load_saves_modal()
+            return
+        self._load_save(save_name)
+    
+    def _show_load_saves_modal(self):
+        """显示可加载存档列表。"""
+        saves = self.save_system.list_saves()
+        if not saves:
+            self.ui_system.show_modal(
+                "加载游戏",
+                ["没有找到任何存档。"],
+                [{
+                    'text': "关闭",
+                    'callback': self.ui_system.close_modal,
+                    'color': COLORS['LIGHT_GRAY'],
+                    'text_color': COLORS['BLACK']
+                }]
+            )
+            return
+        actions = []
+        for save in saves[:8]:
+            save_name = save['name']
+            actions.append({
+                'text': self._format_save_summary(save),
+                'callback': lambda name=save_name: self._load_save(name),
+                'color': COLORS['ORANGE'],
+                'text_color': COLORS['BLACK']
+            })
+        actions.append({
+            'text': "取消",
+            'callback': self.ui_system.close_modal,
+            'color': COLORS['LIGHT_GRAY'],
+            'text_color': COLORS['BLACK']
+        })
+        self.ui_system.show_modal("加载游戏", ["选择要读取的存档。"], actions)
+    
+    def _load_save(self, save_name: str):
+        """按名称读取指定存档。"""
         try:
-            save_name = "ui_save"
             loaded_engine = self.save_system.load_game(save_name)
             if not loaded_engine:
                 self._notify(f"加载失败：未找到 {save_name}.json")
@@ -678,6 +870,7 @@ class UIClient:
             self.game_started = True
             self._restore_ai_players_from_engine()
             self._clear_ui_selection_state()
+            self.ui_system.close_modal()
             self._center_camera_on_map()
             self._notify(f"已加载 {save_name}.json")
             self._process_ai_turns()

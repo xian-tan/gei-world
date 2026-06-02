@@ -163,7 +163,7 @@ def test_ui_fixes():
             client.input_system.set_mode(InputMode.UNIT_SELECTED, "stale_unit")
             client.game_engine = client.game_engine.__class__()
             client.game_started = False
-            client._handle_load_game()
+            client._handle_load_game("ui_save")
             assert client.game_started
             assert client.game_engine.player_system.players
             assert client.ai_manager.is_ai_player("player_1")
@@ -182,7 +182,7 @@ def test_ui_fixes():
         print("- 左键点击选择单位或城市")
         print("- B 或建城按钮: 选中移民后建城")
         print("- 右键取消选择")
-        print("- 选中单位后左键点击其他地块移动")
+        print("- 选中单位后按 Q，再左键点击黄色范围移动")
         print("- WASD 或方向键移动地图")
         print("- 滚轮缩放")
         
@@ -216,6 +216,8 @@ def test_path_preview_state_and_hover_path():
     player.units.append(soldier)
     client._center_camera_on_map()
     client._select_unit(soldier)
+    assert not client.move_mode_active
+    assert not client.render_system.reachable_tiles
     
     path = [start, middle, target]
     client.render_system.set_path_preview(path)
@@ -227,6 +229,10 @@ def test_path_preview_state_and_hover_path():
     client.input_system.mouse_pos = client.camera_system.world_to_screen(world_x, world_y)
     visible_tiles = client.game_engine.vision_system.get_visible_tiles(player.id)
     visible_tiles.update(path)
+    client._update_hover_path_preview(visible_tiles)
+    assert not client.render_system.path_preview
+    client._handle_key_press(pygame.K_q, True)
+    assert client.move_mode_active
     client._update_hover_path_preview(visible_tiles)
     assert client.render_system.path_preview == path
     surface = pygame.Surface((800, 600))
@@ -286,6 +292,10 @@ def test_selection_cycle_build_city_and_minimap():
     client.game_engine.map_tiles[target].terrain_type = TerrainType.OCEAN
     client._select_unit(moving_unit)
     client._handle_unit_selected_click(client.game_engine.map_tiles[target], player)
+    assert moving_unit.position == tile.coord
+    client._select_unit(moving_unit)
+    client._handle_key_press(pygame.K_q, True)
+    client._handle_unit_move_click(client.game_engine.map_tiles[target], player)
     assert moving_unit.movement_points == 0
     assert client.input_system.mode == InputMode.NORMAL
     
@@ -323,6 +333,10 @@ def test_batch_soldier_production_and_movement():
     client._select_unit(soldiers[0])
     client.ui_system.move_soldier_quantity = 2
     client._handle_unit_selected_click(client.game_engine.map_tiles[target], player)
+    assert all(unit.position == city.center_tile for unit in soldiers)
+    client._select_unit(soldiers[0])
+    client._handle_key_press(pygame.K_q, True)
+    client._handle_unit_move_click(client.game_engine.map_tiles[target], player)
     moved = [unit for unit in soldiers if unit.position == target]
     stayed = [unit for unit in soldiers if unit.position == city.center_tile]
     assert len(moved) == 2
@@ -350,6 +364,54 @@ def test_batch_soldier_production_and_movement():
     client.ui_system.handle_mouse_up(city_slider.rect.midright)
     assert client.ui_system.active_slider is None
     assert client.ui_system.city_soldier_quantity == city_slider.max_value
+
+
+
+def test_ai_turn_auto_returns_to_human_view():
+    """测试 AI 行动很多时仍会自动结束 AI 回合并回到玩家视野。"""
+    from ui.client_controller import UIClient
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "AI玩家"], 123)
+    human_player, ai_player = client.game_engine.player_system.players
+    ai_player.gold = 100
+    client._handle_end_turn()
+    assert client.game_engine.get_current_player() == human_player
+    assert not client.ai_manager.is_ai_player(client.game_engine.get_current_player().id)
+
+
+
+def test_multi_save_slots_and_player_colors():
+    """测试 UI 多存档槽位和稳定的非亮黄色玩家颜色。"""
+    from ui.client_controller import UIClient
+    from ui.systems.render_system import RenderSystem
+    from ui.ui_config import COLORS
+    from src.models import Player
+    from src.systems.save_system import GameSaveSystem
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "AI玩家"], 123)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        client.save_system = GameSaveSystem(tmp_dir)
+        client._handle_save_game()
+        assert client.ui_system.has_active_modal()
+        client._handle_save_game("slot_1")
+        client._handle_save_game("slot_2")
+        saves = client.save_system.list_saves()
+        assert {save['name'] for save in saves} >= {"slot_1", "slot_2"}
+        client._handle_load_game()
+        assert client.ui_system.has_active_modal()
+        client._handle_load_game("slot_2")
+        assert client.game_started
+    
+    render = RenderSystem()
+    colors = [render._get_player_color(Player(id=f"player_{index}", name=str(index), gold=0)) for index in range(4)]
+    assert len(set(colors)) == 4
+    assert COLORS['PLAYER_3'] != (255, 255, 100)
+    assert all(color != COLORS['YELLOW'] for color in colors)
+    assert render._get_player_color(Player(id="player_2", name="A", gold=0)) == COLORS['PLAYER_3']
 
 
 
@@ -400,6 +462,9 @@ def test_start_menu_and_game_over_keys():
     exit_client.game_started = False
     exit_client.running = True
     exit_client._handle_key_press(pygame.K_ESCAPE, True)
+    assert exit_client.running
+    assert exit_client.ui_system.has_active_modal()
+    exit_client._confirm_exit_game()
     assert not exit_client.running
     
     load_client = UIClient()
@@ -410,6 +475,8 @@ def test_start_menu_and_game_over_keys():
         load_client.game_engine = load_client.game_engine.__class__()
         load_client.game_started = False
         load_client._handle_key_press(pygame.K_l, True)
+        assert load_client.ui_system.has_active_modal()
+        load_client._handle_load_game("ui_save")
         assert load_client.game_started
         assert load_client.game_engine.player_system.players
     
@@ -436,6 +503,9 @@ def test_start_menu_and_game_over_keys():
     restart_client.running = True
     restart_client.input_system.set_mode(InputMode.UNIT_SELECTED, "stale_unit")
     restart_client._handle_key_press(pygame.K_ESCAPE, True)
+    assert restart_client.running
+    assert restart_client.ui_system.has_active_modal()
+    restart_client._confirm_exit_game()
     assert not restart_client.running
 
 
@@ -444,5 +514,7 @@ if __name__ == "__main__":
     test_path_preview_state_and_hover_path()
     test_selection_cycle_build_city_and_minimap()
     test_batch_soldier_production_and_movement()
+    test_ai_turn_auto_returns_to_human_view()
+    test_multi_save_slots_and_player_colors()
     test_input_system_slider_drag_captures_mouse()
     test_start_menu_and_game_over_keys()
