@@ -17,6 +17,8 @@ env/
 # Build/package artifacts
 build/
 dist/
+release-artifacts/
+*.spec
 *.egg-info/
 
 # IDE/OS files
@@ -29,4 +31,5 @@ dist/
 *.tmp
 
 # Local game saves
-saves/*.json
+saves/
+!saves/.gitkeep

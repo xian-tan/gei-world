@@ -2,11 +2,13 @@
 游戏保存和加载系统
 """
 import json
-import pickle
+import os
+import platform
 from datetime import datetime
 from typing import Dict, Any, Optional
 from pathlib import Path
 
+from .. import __version__
 from ..models import GameState, Player, HexCoord, Tile, Unit, City, TerrainType, UnitType
 from ..game_engine import GameEngine
 
@@ -14,9 +16,28 @@ from ..game_engine import GameEngine
 class GameSaveSystem:
     """游戏保存系统"""
     
-    def __init__(self, save_directory: str = "saves"):
-        self.save_directory = Path(save_directory)
-        self.save_directory.mkdir(exist_ok=True)
+    def __init__(self, save_directory: Optional[str] = None):
+        self.save_directory = Path(save_directory) if save_directory else self.get_default_save_directory()
+        self.save_directory.mkdir(parents=True, exist_ok=True)
+    
+    @staticmethod
+    def get_default_save_directory() -> Path:
+        """获取发布版默认存档目录，可用 GEI_WORLD_SAVE_DIR 覆盖。"""
+        env_dir = os.environ.get("GEI_WORLD_SAVE_DIR")
+        if env_dir:
+            return Path(env_dir).expanduser()
+        system = platform.system()
+        if system == "Darwin":
+            return Path.home() / "Library" / "Application Support" / "gei-world" / "saves"
+        if system == "Windows":
+            base_dir = os.environ.get("APPDATA")
+            if base_dir:
+                return Path(base_dir) / "gei-world" / "saves"
+            return Path.home() / "AppData" / "Roaming" / "gei-world" / "saves"
+        xdg_data_home = os.environ.get("XDG_DATA_HOME")
+        if xdg_data_home:
+            return Path(xdg_data_home) / "gei-world" / "saves"
+        return Path.home() / ".local" / "share" / "gei-world" / "saves"
     
     def save_game(self, engine: GameEngine, save_name: str) -> bool:
         """保存游戏状态"""
@@ -28,7 +49,7 @@ class GameSaveSystem:
                 "metadata": {
                     "save_name": save_name,
                     "timestamp": datetime.now().isoformat(),
-                    "version": "0.1.0",
+                    "version": __version__,
                     "turn": engine.turn_system.current_turn,
                     "players": [p.name for p in engine.player_system.players]
                 },

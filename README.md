@@ -1,44 +1,93 @@
 # gei-world
 
-一个 Python / pygame 实现的六边形回合制策略游戏原型。当前目标是稳定单机可玩 MVP：玩家通过建城、生产、移动、战斗和攻城击败 AI 对手。
+一个 Python / pygame 实现的六边形回合制策略游戏。当前 `v0.1` 目标是稳定单机可玩 MVP：玩家通过建城、生产、移动、战斗和攻城击败 AI 对手。
 
 ## 当前状态
 
 - UI 可视化游戏已可运行。
 - 核心闭环已具备：新游戏、移动、建城、生产、结束回合、AI 回合、保存/加载、战斗/攻城、胜负、重开。
-- 当前测试基线：`54 passed`。
+- 当前测试基线：`59 passed`。
 
-## 快速开始
+## 下载运行 v0.1
 
-本项目约定使用本地 Conda 环境执行 Python 命令：
+推荐普通玩家从 GitHub Releases 下载对应系统的压缩包：
+
+- macOS：`GeiWorld-macos-v0.1.0.zip`
+- Windows：`GeiWorld-windows-v0.1.0.zip`
+- Linux：`GeiWorld-linux-v0.1.0.zip`
+
+下载后解压，运行其中的 `GeiWorld` 应用或可执行文件即可。
+
+## 从源码运行
+
+建议使用 Python 3.11+。
 
 ```bash
+git clone <your-repo-url>
+cd gei-world
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m pip install -r requirements.txt
+python scripts/ui_game.py
+```
+
+本地开发也可以继续使用项目内 Conda 环境：
+
+```bash
+./.conda/bin/python scripts/ui_game.py
 ./.conda/bin/python -m pytest
-./.conda/bin/python scripts/ui_game.py
 ```
 
-如果只想试玩，运行：
+## 游戏操作
 
-```bash
-./.conda/bin/python scripts/ui_game.py
-```
-
-开始界面快捷键：
+开始界面：
 
 - `SPACE`：新游戏
-- `L`：加载默认存档 `saves/ui_save.json`
-- `ESC`：退出
+- `L`：打开存档列表
+- `ESC`：弹出退出确认
 
 游戏内基础操作：
 
-- 左键：选择单位/城市，或移动选中单位
-- 黄色边框：当前单位可移动范围
+- 左键：选择单位/城市、同格对象切换
+- `Q`：选中单位后进入/退出移动模式
+- 黄色边框：移动模式下当前单位真实可达范围
+- 青色轮廓：选中城市后的城市经济范围，范围内己方领土会提供收入
 - 右键：取消当前选择
 - `B` / 建城按钮：选中移民后，在移民当前位置建城
-- 城市面板：生产移民/士兵
+- 城市面板：生产移民/士兵，士兵可批量生产
+- 选中士兵：可用滑块选择移动人数
 - `WASD` / 方向键：移动地图
 - 滚轮：缩放地图
-- 游戏结束后 `R` 重新开始，`ESC` 退出
+- 游戏结束后 `R` 重新开始，`ESC` 弹出退出确认
+
+## 保存和加载
+
+- 游戏内点击“保存”会打开 `slot_1` 到 `slot_5` 多个保存槽位。
+- 开始界面按 `L` 或游戏内点击“加载”会打开存档列表。
+- 发布版默认存档位置为用户数据目录：
+  - macOS：`~/Library/Application Support/gei-world/saves`
+  - Windows：`%APPDATA%/gei-world/saves`
+  - Linux：`$XDG_DATA_HOME/gei-world/saves` 或 `~/.local/share/gei-world/saves`
+- 可用环境变量 `GEI_WORLD_SAVE_DIR` 覆盖存档目录。
+
+## 发布构建
+
+本地构建当前系统包：
+
+```bash
+python -m pip install -r requirements.txt pyinstaller
+python scripts/build_release.py --version v0.1.0
+```
+
+构建产物会输出到 `release-artifacts/`。
+
+GitHub Actions 已配置在推送 `v*` tag 时自动在 macOS / Windows / Linux 三个平台构建包，并上传到 GitHub Release：
+
+```bash
+git tag v0.1.0
+git push origin main
+git push origin v0.1.0
+```
 
 ## 文档
 
@@ -59,33 +108,13 @@ gei-world/
 ├── src/                 # 核心游戏逻辑
 ├── ui/                  # pygame UI
 ├── tests/               # 自动化测试
-├── scripts/             # 启动和演示脚本
-├── docs/                # 文档
-└── saves/               # 本地存档目录
-```
-
-## 常用命令
-
-```bash
-# UI 游戏
-./.conda/bin/python scripts/ui_game.py
-
-# 带说明的 UI 演示入口
-./.conda/bin/python scripts/ui_demo.py
-
-# 命令行演示
-./.conda/bin/python scripts/demo.py
-./.conda/bin/python scripts/interactive_game.py
-./.conda/bin/python scripts/enhanced_demo.py
-
-# 全量测试
-./.conda/bin/python -m pytest
+├── scripts/             # 启动、演示和发布脚本
+└── docs/                # 文档
 ```
 
 ## 当前已知限制
 
 - UI 新游戏暂不支持自定义玩家名、玩家数、地图类型和随机种子。
-- UI 存档槽固定为 `saves/ui_save.json`。
 - AI 仍是基础策略，不保证高质量对战。
 - 当前地形只有陆地和海洋。
 - 暂无网络多人、科技树、建筑扩展和复杂单位体系。

@@ -37,7 +37,7 @@ class UIClient:
         # 游戏引擎
         self.game_engine = GameEngine()
         self.ai_manager = AIManager()
-        self.save_system = GameSaveSystem(os.path.join(project_root, "saves"))
+        self.save_system = GameSaveSystem()
         self.save_slots = [f"slot_{index}" for index in range(1, 6)]
         
         # UI系统

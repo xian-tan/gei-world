@@ -1,7 +1,9 @@
 """
 非交互式测试增强功能
 """
+import os
 import tempfile
+from pathlib import Path
 
 from src.game_engine import GameEngine
 from src.models import HexCoord, TerrainType, UnitType
@@ -141,6 +143,22 @@ def test_ai_uses_reachable_movement_targets():
     target = ai._find_move_target(soldier, engine)
     assert target != unreachable
     assert target in engine.unit_system.get_reachable_tiles(soldier, engine.map_tiles)
+
+
+def test_save_system_uses_environment_save_dir():
+    """测试默认存档目录可通过环境变量覆盖，避免发布版写入仓库目录。"""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        old_value = os.environ.get("GEI_WORLD_SAVE_DIR")
+        os.environ["GEI_WORLD_SAVE_DIR"] = tmp_dir
+        try:
+            save_system = GameSaveSystem()
+            assert save_system.save_directory == Path(tmp_dir)
+            assert save_system.save_directory.exists()
+        finally:
+            if old_value is None:
+                os.environ.pop("GEI_WORLD_SAVE_DIR", None)
+            else:
+                os.environ["GEI_WORLD_SAVE_DIR"] = old_value
 
 
 def test_save_system():
