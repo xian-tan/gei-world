@@ -67,9 +67,9 @@ class CitySystem:
         if owner and tile.owner and tile.owner != owner:
             return "建城失败：不能在敌方领土建城"
         
-        # 不能在敌方城市核心范围内建城
+        # 不能在敌方城市初始领土范围内建城
         if owner:
-            core_radius = CITY_CONFIG["territory_radius"]
+            core_radius = CITY_CONFIG["initial_territory_radius"]
             for city in self.cities:
                 if city.owner != owner and city.center_tile.distance_to(position) <= core_radius:
                     return "建城失败：距离敌方城市太近"
@@ -79,7 +79,7 @@ class CitySystem:
     def _get_initial_territory(self, center: HexCoord, map_tiles: dict) -> Set[HexCoord]:
         """获取城市初始领土"""
         territory = set()
-        radius = CITY_CONFIG["territory_radius"]
+        radius = CITY_CONFIG["initial_territory_radius"]
         
         # 获取中心点及周围指定半径内的所有地块
         for coord, tile in map_tiles.items():
@@ -89,6 +89,16 @@ class CitySystem:
                     territory.add(coord)
         
         return territory
+    
+    def get_city_economic_tiles(self, city: City, map_tiles: dict, land_only: bool = False) -> Set[HexCoord]:
+        """获取城市经济范围内的地块。"""
+        economic_tiles = set()
+        radius = CITY_CONFIG["economic_radius"]
+        for coord, tile in map_tiles.items():
+            if city.center_tile.distance_to(coord) <= radius:
+                if not land_only or tile.terrain_type.value == "land":
+                    economic_tiles.add(coord)
+        return economic_tiles
     
     def get_city_by_id(self, city_id: str) -> Optional[City]:
         """根据ID获取城市"""
@@ -105,35 +115,40 @@ class CitySystem:
         """向生产队列添加单位"""
         city.production_queue.append(unit_type)
     
-    def can_build_unit(self, city: City, unit_type: UnitType) -> bool:
+    def can_build_unit(self, city: City, unit_type: UnitType, quantity: int = 1) -> bool:
         """检查是否可以建造单位"""
-        return self.get_build_unit_failure_reason(city, unit_type) is None
+        return self.get_build_unit_failure_reason(city, unit_type, quantity) is None
     
-    def get_build_unit_failure_reason(self, city: City, unit_type: UnitType) -> Optional[str]:
+    def get_build_unit_failure_reason(self, city: City, unit_type: UnitType, quantity: int = 1) -> Optional[str]:
         """获取生产失败原因；可生产时返回 None。"""
-        cost = self._get_unit_cost(unit_type)
+        quantity = 1 if unit_type == UnitType.SETTLER else max(1, quantity)
+        cost = self._get_unit_cost(unit_type) * quantity
         if city.owner.gold < cost:
             return f"生产失败：金币不足，需要 {cost}，当前 {city.owner.gold}"
         return None
     
-    def build_unit(self, city: City, unit_type: UnitType, unit_system, map_tiles: dict) -> Optional[Unit]:
-        """建造单位"""
-        if not self.can_build_unit(city, unit_type):
+    def build_unit(self, city: City, unit_type: UnitType, unit_system, map_tiles: dict,
+                   quantity: int = 1) -> Optional[Unit]:
+        """建造单位；士兵会合并进城市中心的士兵栈。"""
+        quantity = 1 if unit_type == UnitType.SETTLER else max(1, quantity)
+        if not self.can_build_unit(city, unit_type, quantity):
             return None
         
-        # 扣除金币
-        cost = self._get_unit_cost(unit_type)
+        cost = self._get_unit_cost(unit_type) * quantity
         city.owner.gold -= cost
-        
-        # 创建单位
-        unit = unit_system.create_unit(unit_type, city.owner, city.center_tile)
-        
-        # 添加到地图
         center_tile = map_tiles.get(city.center_tile)
+        
+        if unit_type == UnitType.SOLDIER and center_tile:
+            for existing in center_tile.units:
+                if (existing.owner == city.owner and existing.unit_type == UnitType.SOLDIER and
+                        existing.movement_points == existing.max_movement_points):
+                    existing.quantity += quantity
+                    return existing
+        
+        unit = unit_system.create_unit(unit_type, city.owner, city.center_tile, quantity)
+        
         if center_tile:
             center_tile.units.append(unit)
-        
-        # 添加到玩家单位列表
         city.owner.units.append(unit)
         
         return unit

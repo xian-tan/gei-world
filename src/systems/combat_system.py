@@ -25,37 +25,33 @@ class CombatSystem:
         if not attacking_soldiers or not defending_soldiers:
             return attacking_units, defending_units
         
-        attack_strength = len(attacking_soldiers)
-        defense_strength = len(defending_soldiers)
+        attack_strength = sum(unit.quantity for unit in attacking_soldiers)
+        defense_strength = sum(unit.quantity for unit in defending_soldiers)
         
         # 简单的数量对比战斗
         if attack_strength > defense_strength:
-            # 攻击方胜利
             survivors_count = attack_strength - defense_strength
-            # 保留部分攻击单位
-            survivors = attacking_soldiers[:survivors_count]
-            # 防守方全灭
+            survivor = attacking_soldiers[0]
+            survivor.quantity = survivors_count
             for unit in defending_soldiers:
                 self._remove_unit_from_tile(unit, position, map_tiles)
-            
-            return survivors + [u for u in attacking_units if u.unit_type != UnitType.SOLDIER], []
+            for unit in attacking_soldiers[1:]:
+                self._remove_unit_from_tile(unit, position, map_tiles)
+            return [survivor] + [u for u in attacking_units if u.unit_type != UnitType.SOLDIER], []
             
         elif defense_strength > attack_strength:
-            # 防守方胜利  
             survivors_count = defense_strength - attack_strength
-            # 保留部分防守单位
-            survivors = defending_soldiers[:survivors_count]
-            # 攻击方全灭
+            survivor = defending_soldiers[0]
+            survivor.quantity = survivors_count
             for unit in attacking_soldiers:
                 self._remove_unit_from_tile(unit, position, map_tiles)
-            
-            return [], survivors + [u for u in defending_units if u.unit_type != UnitType.SOLDIER]
+            for unit in defending_soldiers[1:]:
+                self._remove_unit_from_tile(unit, position, map_tiles)
+            return [], [survivor] + [u for u in defending_units if u.unit_type != UnitType.SOLDIER]
             
         else:
-            # 平手，双方全灭
             for unit in attacking_soldiers + defending_soldiers:
                 self._remove_unit_from_tile(unit, position, map_tiles)
-            
             return ([u for u in attacking_units if u.unit_type != UnitType.SOLDIER], 
                    [u for u in defending_units if u.unit_type != UnitType.SOLDIER])
     
@@ -65,28 +61,21 @@ class CombatSystem:
         if not attacking_soldiers:
             return False
         
-        attack_strength = len(attacking_soldiers)
+        attack_strength = sum(unit.quantity for unit in attacking_soldiers)
         defense_value = CITY_CONFIG["defense_value"]
         
         if attack_strength >= defense_value:
-            # 攻击成功，城市易主
             old_owner = city.owner
             new_owner = attacking_soldiers[0].owner
-            
-            # 转移城市所有权
             self._transfer_city_ownership(city, old_owner, new_owner, map_tiles)
             
-            # 部分攻击单位存活
             survivors_count = max(1, attack_strength - defense_value)
-            survivors = attacking_soldiers[:survivors_count]
-            
-            # 移除多余的攻击单位
-            for unit in attacking_soldiers[survivors_count:]:
+            survivor = attacking_soldiers[0]
+            survivor.quantity = survivors_count
+            for unit in attacking_soldiers[1:]:
                 self._remove_unit_from_tile(unit, city.center_tile, map_tiles)
-            
             return True
         else:
-            # 攻击失败，攻击单位全灭
             for unit in attacking_soldiers:
                 self._remove_unit_from_tile(unit, city.center_tile, map_tiles)
             return False

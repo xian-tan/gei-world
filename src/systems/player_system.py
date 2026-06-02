@@ -2,8 +2,8 @@
 玩家系统 - 负责玩家数据管理
 """
 from typing import List, Optional
-from ..models import Player, Unit, City, HexCoord
-from ..config import PLAYER_CONFIG
+from ..models import Player, Unit, City, TerrainType
+from ..config import PLAYER_CONFIG, ECONOMY_CONFIG, CITY_CONFIG
 
 
 class PlayerSystem:
@@ -57,15 +57,31 @@ class PlayerSystem:
         """为玩家添加城市"""
         player.cities.append(city)
     
-    def calculate_income(self, player: Player) -> int:
-        """计算玩家收入"""
-        # 基于领土数量计算收入
-        territory_count = 0
-        for city in player.cities:
-            territory_count += len(city.territory_tiles)
+    def calculate_income(self, player: Player, map_tiles: dict = None) -> int:
+        """计算玩家收入。
         
-        from ..config import ECONOMY_CONFIG
-        return territory_count * ECONOMY_CONFIG["territory_income"]
+        有地图数据时，只统计玩家已拥有、且落在任一己方城市经济范围内的陆地地块。
+        兼容旧调用时退回到城市初始领土去重统计。
+        """
+        if not player:
+            return 0
+        
+        income_tiles = set()
+        if map_tiles is not None:
+            economic_radius = CITY_CONFIG["economic_radius"]
+            for city in player.cities:
+                for coord, tile in map_tiles.items():
+                    if city.center_tile.distance_to(coord) > economic_radius:
+                        continue
+                    if tile.terrain_type != TerrainType.LAND:
+                        continue
+                    if tile.owner == player:
+                        income_tiles.add(coord)
+        else:
+            for city in player.cities:
+                income_tiles.update(city.territory_tiles)
+        
+        return len(income_tiles) * ECONOMY_CONFIG["territory_income"]
     
     def update_player_gold(self, player: Player, amount: int):
         """更新玩家金币"""

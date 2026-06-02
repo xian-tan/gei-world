@@ -34,6 +34,7 @@ class RenderSystem:
         self.hovered_tile = None
         self.selected_unit_id = None  # 添加选中单位ID
         self.reachable_tiles: Set[HexCoord] = set()
+        self.selected_city_economic_tiles: Set[HexCoord] = set()
         self.path_preview: List[HexCoord] = []
         self.minimap_rect: Optional[pygame.Rect] = None
         
@@ -62,6 +63,14 @@ class RenderSystem:
     def clear_reachable_tiles(self):
         """清除可达地块高亮。"""
         self.reachable_tiles.clear()
+    
+    def set_selected_city_economic_tiles(self, tiles: Set[HexCoord]):
+        """设置选中城市的经济范围轮廓。"""
+        self.selected_city_economic_tiles = set(tiles or set())
+    
+    def clear_selected_city_economic_tiles(self):
+        """清除选中城市的经济范围轮廓。"""
+        self.selected_city_economic_tiles.clear()
         
     def set_camera(self, x: int, y: int):
         """设置摄像机位置"""
@@ -180,14 +189,16 @@ class RenderSystem:
         border_color = None
         if tile.coord == self.selected_tile:
             border_color = COLORS['WHITE']
-        elif tile.coord == self.hovered_tile:
-            border_color = COLORS['LIGHT_GRAY']
         elif is_visible and tile.coord in self.reachable_tiles:
             border_color = COLORS['YELLOW']
+        elif is_visible and tile.coord in self.selected_city_economic_tiles:
+            border_color = COLORS['ECONOMIC_RANGE']
+        elif tile.coord == self.hovered_tile:
+            border_color = COLORS['LIGHT_GRAY']
         
         # 绘制六边形
         radius = int(HEX_RADIUS * self.zoom)
-        border_width = 3 if tile.coord in self.reachable_tiles else (2 if border_color else 1)
+        border_width = 3 if (tile.coord in self.reachable_tiles or tile.coord in self.selected_city_economic_tiles) else (2 if border_color else 1)
         HexRenderer.draw_hex(surface, screen_x, screen_y, color, border_color, 
                            radius, border_width)
         
@@ -232,36 +243,19 @@ class RenderSystem:
         
         unit_size = max(6, int(radius * 0.3))
         
-        # 检查是否有选中的单位
         has_selected_unit = any(unit.id == self.selected_unit_id for unit in units)
+        total_count = sum(unit.quantity for unit in units)
+        color = self._get_unit_color(units[0])
+        pygame.draw.circle(surface, color, (screen_x, screen_y - radius//3), unit_size)
         
-        # 如果只有一个单位，显示在中心
-        if len(units) == 1:
-            unit = units[0]
-            color = self._get_unit_color(unit)
-            
-            # 绘制单位圆圈
-            pygame.draw.circle(surface, color, (screen_x, screen_y - radius//3), unit_size)
-            
-            # 如果是选中的单位，添加高亮边框
-            if unit.id == self.selected_unit_id:
-                pygame.draw.circle(surface, COLORS['WHITE'], (screen_x, screen_y - radius//3), unit_size + 2, 2)
-            
-            pygame.draw.circle(surface, COLORS['BLACK'], (screen_x, screen_y - radius//3), unit_size, 1)
-        else:
-            # 多个单位显示数量
-            color = self._get_unit_color(units[0])  # 使用第一个单位的颜色
-            pygame.draw.circle(surface, color, (screen_x, screen_y - radius//3), unit_size)
-            
-            # 如果有选中的单位，添加高亮边框
-            if has_selected_unit:
-                pygame.draw.circle(surface, COLORS['WHITE'], (screen_x, screen_y - radius//3), unit_size + 2, 2)
-            
-            pygame.draw.circle(surface, COLORS['BLACK'], (screen_x, screen_y - radius//3), unit_size, 1)
-            
-            # 显示数量文本
+        if has_selected_unit:
+            pygame.draw.circle(surface, COLORS['WHITE'], (screen_x, screen_y - radius//3), unit_size + 2, 2)
+        
+        pygame.draw.circle(surface, COLORS['BLACK'], (screen_x, screen_y - radius//3), unit_size, 1)
+        
+        if total_count > 1:
             font = pygame.font.Font(None, 16)
-            text = font.render(str(len(units)), True, COLORS['WHITE'])
+            text = font.render(str(total_count), True, COLORS['WHITE'])
             text_rect = text.get_rect(center=(screen_x, screen_y - radius//3))
             surface.blit(text, text_rect)
     

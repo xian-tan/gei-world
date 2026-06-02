@@ -7,7 +7,7 @@ import unittest
 from src.game_engine import GameEngine
 from src.models import ActionType, GameAction, UnitType, TerrainType, HexCoord
 from src.systems.save_system import GameSaveSystem
-from src.config import UNIT_CONFIG
+from src.config import UNIT_CONFIG, CITY_CONFIG, ECONOMY_CONFIG
 
 
 class TestGameplayRules(unittest.TestCase):
@@ -388,6 +388,70 @@ class TestGameplayRules(unittest.TestCase):
         engine.map_tiles[adjacent].terrain_type = TerrainType.LAND
         engine.map_tiles[adjacent].owner = None
         self.assertFalse(engine.city_system.can_build_city(adjacent, engine.map_tiles, player1))
+
+    def test_new_turn_merges_same_tile_soldier_stacks_after_restoring_movement(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+        player1, player2 = engine.player_system.players
+        for unit in list(player1.units):
+            engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        position = HexCoord(0, 0)
+        engine.map_tiles[position].terrain_type = TerrainType.LAND
+        stacks = []
+        for quantity, movement in [(1, 0), (5, 1), (1, 0)]:
+            stack = engine.unit_system.create_unit(UnitType.SOLDIER, player1, position, quantity=quantity)
+            stack.movement_points = movement
+            engine.map_tiles[position].units.append(stack)
+            player1.units.append(stack)
+            stacks.append(stack)
+
+        self.assertEqual([unit.quantity for unit in engine.map_tiles[position].units if unit.unit_type == UnitType.SOLDIER], [1, 5, 1])
+        self.assertTrue(engine.execute_action(GameAction(player_id=player1.id, action_type=ActionType.END_TURN, params={})))
+        self.assertTrue(engine.execute_action(GameAction(player_id=player2.id, action_type=ActionType.END_TURN, params={})))
+
+        soldier_stacks = [unit for unit in engine.map_tiles[position].units if unit.owner == player1 and unit.unit_type == UnitType.SOLDIER]
+        self.assertEqual(len(soldier_stacks), 1)
+        self.assertEqual(soldier_stacks[0].quantity, 7)
+        self.assertEqual(soldier_stacks[0].movement_points, soldier_stacks[0].max_movement_points)
+
+    def test_city_economic_range_counts_owned_tiles_only(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+        player1, player2 = engine.player_system.players
+        for player in [player1, player2]:
+            for unit in list(player.units):
+                engine.unit_system.remove_unit(unit, engine.map_tiles)
+
+        center = HexCoord(0, 0)
+        inside_economy = HexCoord(CITY_CONFIG["economic_radius"], 0)
+        outside_initial = center.distance_to(inside_economy) > CITY_CONFIG["initial_territory_radius"]
+        self.assertTrue(outside_initial)
+        for coord in [center, inside_economy]:
+            engine.map_tiles[coord].terrain_type = TerrainType.LAND
+            engine.map_tiles[coord].owner = None
+
+        city = engine.city_system.create_city(player1, center, engine.map_tiles)
+        player1.cities.append(city)
+        base_income_tiles = {
+            coord for coord in city.territory_tiles
+            if engine.map_tiles[coord].owner == player1
+            and engine.map_tiles[coord].terrain_type == TerrainType.LAND
+        }
+        self.assertNotIn(inside_economy, city.territory_tiles)
+        self.assertEqual(
+            engine.player_system.calculate_income(player1, engine.map_tiles),
+            len(base_income_tiles) * ECONOMY_CONFIG["territory_income"]
+        )
+
+        soldier = engine.unit_system.create_unit(UnitType.SOLDIER, player1, inside_economy)
+        engine.map_tiles[inside_economy].units.append(soldier)
+        player1.units.append(soldier)
+        self.assertTrue(engine.combat_system.occupy_tile(soldier, inside_economy, engine.map_tiles))
+        self.assertEqual(
+            engine.player_system.calculate_income(player1, engine.map_tiles),
+            (len(base_income_tiles) + 1) * ECONOMY_CONFIG["territory_income"]
+        )
 
     def test_city_capture_can_end_game_immediately(self):
         engine = GameEngine()

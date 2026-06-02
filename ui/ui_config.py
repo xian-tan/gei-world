@@ -25,6 +25,7 @@ COLORS = {
     'PURPLE': (128, 0, 128),
     'CYAN': (0, 255, 255),
     'BROWN': (139, 69, 19),
+    'ECONOMIC_RANGE': (70, 230, 210),
     
     # 游戏特定颜色
     'MAP_BACKGROUND': (22, 28, 38), # 地图外背景

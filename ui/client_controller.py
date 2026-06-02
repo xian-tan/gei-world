@@ -87,6 +87,7 @@ class UIClient:
         self.render_system.selected_tile = None
         self.render_system.clear_selected_unit()
         self.render_system.clear_reachable_tiles()
+        self.render_system.clear_selected_city_economic_tiles()
     
     def _notify(self, message: str):
         """同时输出控制台和界面消息。"""
@@ -390,6 +391,7 @@ class UIClient:
     def _get_game_state(self) -> Dict[str, Any]:
         """获取游戏状态快照"""
         current_player = self.game_engine.get_current_player()
+        current_income = self.game_engine.player_system.calculate_income(current_player, self.game_engine.map_tiles) if current_player else 0
         selected_coord = self.render_system.selected_tile
         selected_tile = self.game_engine.map_tiles.get(selected_coord) if selected_coord else None
         selected_unit = self._find_unit_by_id(self.input_system.get_selected_unit_id()) if self.input_system.is_unit_selected() else None
@@ -397,6 +399,7 @@ class UIClient:
         
         return {
             'current_player': current_player,
+            'current_income': current_income,
             'turn_number': self.game_engine.turn_system.turn_number,
             'game_over': self.game_engine.game_over,
             'winner': self.game_engine.winner,
@@ -500,10 +503,11 @@ class UIClient:
         self.render_system.set_selected_unit(unit.id)
         self.render_system.clear_reachable_tiles()
         self.render_system.clear_path_preview()
+        self.render_system.clear_selected_city_economic_tiles()
         if unit.unit_type == UnitType.SETTLER:
             self._notify(f"选中移民：移动力 {unit.movement_points}。按 Q 进入移动模式，按 B 或点击建城按钮建城。")
         elif unit.unit_type == UnitType.SOLDIER:
-            self._notify(f"选中士兵：移动力 {unit.movement_points}。按 Q 进入移动/攻击模式。")
+            self._notify(f"选中士兵：{unit.quantity} 名，移动力 {unit.movement_points}。按 Q 进入移动/攻击模式。")
         else:
             self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})，按 Q 进入移动模式。")
         if unit.movement_points <= 0:
@@ -514,8 +518,11 @@ class UIClient:
         self.move_mode_active = False
         self.input_system.set_mode(InputMode.CITY_SELECTED, city.id)
         self.ui_system.show_city_panel_for(city)
+        self.render_system.selected_tile = city.center_tile
         self.render_system.clear_selected_unit()
         self.render_system.clear_reachable_tiles()
+        economic_tiles = self.game_engine.city_system.get_city_economic_tiles(city, self.game_engine.map_tiles)
+        self.render_system.set_selected_city_economic_tiles(economic_tiles)
         self._notify(f"选中城市：当前金币 {current_player.gold}。可在城市面板生产移民或士兵。")
     
     def _handle_unit_selected_click(self, tile, current_player):
@@ -536,41 +543,34 @@ class UIClient:
             self._notify("已在当前位置，选择黄色范围内的目标地块移动。")
             return
         
-        moving_units = [unit]
+        move_quantity = 1
         if unit.unit_type == UnitType.SOLDIER:
-            source_tile = self.game_engine.map_tiles.get(unit.position)
-            if source_tile:
-                same_tile_soldiers = [
-                    candidate for candidate in source_tile.units
-                    if candidate.owner == current_player
-                    and candidate.unit_type == UnitType.SOLDIER
-                    and candidate.movement_points > 0
-                ]
-                same_tile_soldiers.sort(key=lambda candidate: 0 if candidate.id == unit.id else 1)
-                moving_units = same_tile_soldiers[:max(1, min(self.ui_system.move_soldier_quantity, len(same_tile_soldiers)))]
+            move_quantity = max(1, min(self.ui_system.move_soldier_quantity, unit.quantity))
         
-        for moving_unit in moving_units:
-            move_failure = self.game_engine.unit_system.get_move_failure_reason(moving_unit, tile.coord, self.game_engine.map_tiles)
-            if move_failure:
-                self._notify(move_failure)
-                return
+        move_failure = self.game_engine.unit_system.get_move_failure_reason(unit, tile.coord, self.game_engine.map_tiles)
+        if move_failure:
+            self._notify(move_failure)
+            return
         
         action = GameAction(
             player_id=current_player.id,
             action_type=ActionType.MOVE_UNIT,
             params={
                 'unit_id': unit_id,
-                'unit_ids': [moving_unit.id for moving_unit in moving_units],
+                'move_quantity': move_quantity,
                 'target': [tile.coord.q, tile.coord.r]
             }
         )
         
         result = self._execute_action_and_notify(action)
         if result.success:
-            if len(moving_units) > 1:
-                self._notify(f"已移动 {len(moving_units)} 名士兵")
-            unit = self._find_unit_by_id(unit_id)
+            moved_unit_id = action.params.get('unit_id', unit_id)
+            if move_quantity > 1 and unit.unit_type == UnitType.SOLDIER:
+                self._notify(f"已移动 {move_quantity} 名士兵")
+            unit = self._find_unit_by_id(moved_unit_id)
             if unit:
+                self.input_system.set_mode(InputMode.UNIT_SELECTED, unit.id)
+                self.render_system.set_selected_unit(unit.id)
                 if unit.movement_points <= 0:
                     self._notify("移动力已耗尽，已取消选中。")
                     self._clear_ui_selection_state()
@@ -610,6 +610,7 @@ class UIClient:
             or self.render_system.selected_tile
             or self.render_system.selected_unit_id
             or self.render_system.reachable_tiles
+            or self.render_system.selected_city_economic_tiles
             or self.render_system.path_preview
             or self.move_mode_active
         )
@@ -742,24 +743,20 @@ class UIClient:
         """处理建造单位。"""
         current_player = self.game_engine.get_current_player()
         quantity = 1 if unit_type == UnitType.SETTLER else max(1, quantity)
-        success_count = 0
-        last_result = None
-        for _ in range(quantity):
-            action = GameAction(
-                player_id=current_player.id,
-                action_type=ActionType.BUILD_UNIT,
-                params={'city_id': city_id, 'unit_type': unit_type.value}
-            )
-            result = self.game_engine.execute_action_with_result(action)
-            last_result = result
-            if not result.success:
-                break
-            success_count += 1
-        
-        if success_count > 1 and unit_type == UnitType.SOLDIER:
-            self._notify(f"生产士兵 {success_count} 名")
-        elif last_result:
-            self._notify_action_result(last_result)
+        action = GameAction(
+            player_id=current_player.id,
+            action_type=ActionType.BUILD_UNIT,
+            params={
+                'city_id': city_id,
+                'unit_type': unit_type.value,
+                'quantity': quantity
+            }
+        )
+        result = self.game_engine.execute_action_with_result(action)
+        if result.success and quantity > 1 and unit_type == UnitType.SOLDIER:
+            self._notify(f"生产士兵 {quantity} 名")
+        else:
+            self._notify_action_result(result)
     
     def _handle_end_turn(self):
         """处理结束回合"""

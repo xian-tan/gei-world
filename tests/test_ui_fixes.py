@@ -25,6 +25,7 @@ def test_ui_fixes():
         from ui.systems.ui_system import UISystem
         from src.models import HexCoord, UnitType, Player, ActionEvent, ActionResult, Tile, TerrainType, Unit, City
         from src.systems.save_system import GameSaveSystem
+        from src.config import ECONOMY_CONFIG
         
         print("✓ 所有模块导入成功")
         
@@ -128,6 +129,7 @@ def test_ui_fixes():
         client.game_engine.unit_system.remove_unit(settler, client.game_engine.map_tiles)
         city = client.game_engine.city_system.create_city(player, settler.position, client.game_engine.map_tiles)
         player.cities.append(city)
+        assert client._get_game_state()['current_income'] == len(city.territory_tiles) * ECONOMY_CONFIG["territory_income"]
         client.ui_system.messages.clear()
         client._handle_normal_click(client.game_engine.map_tiles[city.center_tile], player)
         assert any("生产" in message and "金币" in message for message in client.ui_system.messages)
@@ -245,6 +247,7 @@ def test_selection_cycle_build_city_and_minimap():
     from ui.client_controller import UIClient
     from ui.systems.input_system import InputMode
     from src.models import HexCoord, UnitType, TerrainType
+    from src.config import CITY_CONFIG
     
     pygame.init()
     client = UIClient()
@@ -266,11 +269,18 @@ def test_selection_cycle_build_city_and_minimap():
     client._handle_unit_selected_click(tile, player)
     assert client.input_system.mode == InputMode.CITY_SELECTED
     assert client.ui_system.selected_city == city
+    assert client.render_system.selected_tile == city.center_tile
+    assert client.render_system.selected_city_economic_tiles
+    assert all(
+        city.center_tile.distance_to(coord) <= CITY_CONFIG["economic_radius"]
+        for coord in client.render_system.selected_city_economic_tiles
+    )
     
     client._handle_tile_right_click((0, 0))
     assert client.input_system.mode == InputMode.NORMAL
     assert client.render_system.selected_unit_id is None
     assert not client.render_system.reachable_tiles
+    assert not client.render_system.selected_city_economic_tiles
     
     for unit in list(player.units):
         client.game_engine.unit_system.remove_unit(unit, client.game_engine.map_tiles)
@@ -323,7 +333,8 @@ def test_batch_soldier_production_and_movement():
     
     client._handle_build_unit(city.id, UnitType.SOLDIER, quantity=3)
     soldiers = [unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]
-    assert len(soldiers) == 3
+    assert len(soldiers) == 1
+    assert soldiers[0].quantity == 3
     assert player.gold == 2
     assert any("生产士兵 3 名" in message for message in client.ui_system.messages)
     
@@ -337,10 +348,11 @@ def test_batch_soldier_production_and_movement():
     client._select_unit(soldiers[0])
     client._handle_key_press(pygame.K_q, True)
     client._handle_unit_move_click(client.game_engine.map_tiles[target], player)
-    moved = [unit for unit in soldiers if unit.position == target]
-    stayed = [unit for unit in soldiers if unit.position == city.center_tile]
-    assert len(moved) == 2
-    assert len(stayed) == 1
+    soldier_stacks = [unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]
+    moved = [unit for unit in soldier_stacks if unit.position == target]
+    stayed = [unit for unit in soldier_stacks if unit.position == city.center_tile]
+    assert sum(unit.quantity for unit in moved) == 2
+    assert sum(unit.quantity for unit in stayed) == 1
     assert any("已移动 2 名士兵" in message for message in client.ui_system.messages)
     
     surface = pygame.Surface((800, 600))
@@ -364,6 +376,58 @@ def test_batch_soldier_production_and_movement():
     client.ui_system.handle_mouse_up(city_slider.rect.midright)
     assert client.ui_system.active_slider is None
     assert client.ui_system.city_soldier_quantity == city_slider.max_value
+
+
+
+def test_split_soldier_stack_keeps_moved_stack_selected_and_saved():
+    """测试分兵后继续移动的是分出去的士兵栈，并保存人数。"""
+    import json
+    from ui.client_controller import UIClient
+    from src.models import HexCoord, UnitType, TerrainType
+    from src.systems.save_system import GameSaveSystem
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "AI玩家"], 123)
+    player = client.game_engine.get_current_player()
+    for unit in list(player.units):
+        client.game_engine.unit_system.remove_unit(unit, client.game_engine.map_tiles)
+    start = HexCoord(0, 0)
+    first_target = HexCoord(1, 0)
+    second_target = HexCoord(2, 0)
+    for coord in [start, first_target, second_target]:
+        client.game_engine.map_tiles[coord].terrain_type = TerrainType.LAND
+        client.game_engine.map_tiles[coord].owner = None
+    soldier_stack = client.game_engine.unit_system.create_unit(UnitType.SOLDIER, player, start, quantity=30)
+    client.game_engine.map_tiles[start].units.append(soldier_stack)
+    player.units.append(soldier_stack)
+    
+    client._select_unit(soldier_stack)
+    client.ui_system.move_soldier_quantity = 25
+    client._handle_key_press(pygame.K_q, True)
+    client._handle_unit_move_click(client.game_engine.map_tiles[first_target], player)
+    selected_after_first_move = client._find_unit_by_id(client.input_system.get_selected_unit_id())
+    assert selected_after_first_move is not None
+    assert selected_after_first_move.position == first_target
+    assert selected_after_first_move.quantity == 25
+    
+    client.ui_system.move_soldier_quantity = 21
+    client._handle_unit_move_click(client.game_engine.map_tiles[second_target], player)
+    soldier_stacks = [unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]
+    assert sum(unit.quantity for unit in soldier_stacks if unit.position == start) == 5
+    assert sum(unit.quantity for unit in soldier_stacks if unit.position == first_target) == 4
+    assert sum(unit.quantity for unit in soldier_stacks if unit.position == second_target) == 21
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        client.save_system = GameSaveSystem(tmp_dir)
+        assert client.save_system.save_game(client.game_engine, "stacked")
+        with open(os.path.join(tmp_dir, "stacked.json"), "r", encoding="utf-8") as save_file:
+            save_data = json.load(save_file)
+        saved_quantities = [unit_data.get("quantity") for player_data in save_data["game_data"]["players"] for unit_data in player_data["units"]]
+        assert 21 in saved_quantities
+        loaded = client.save_system.load_game("stacked")
+        loaded_player = loaded.player_system.players[0]
+        assert sum(unit.quantity for unit in loaded_player.units if unit.unit_type == UnitType.SOLDIER) == 30
 
 
 

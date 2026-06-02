@@ -32,6 +32,7 @@ ECONOMY_CONFIG = {
 
 # 城市配置
 CITY_CONFIG = {
-    "territory_radius": 1,  # 城市初始领土半径
-    "defense_value": 2,     # 城市防御值
+    "initial_territory_radius": 1,  # 建城后自动获得的初始领土半径
+    "economic_radius": 2,           # 城市可提供收入的经济范围半径
+    "defense_value": 2,             # 城市防御值
 }

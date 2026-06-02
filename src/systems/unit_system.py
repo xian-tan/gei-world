@@ -13,8 +13,8 @@ class UnitSystem:
     def __init__(self):
         self.units: List[Unit] = []
     
-    def create_unit(self, unit_type: UnitType, owner: Player, position: HexCoord) -> Unit:
-        """创建单位"""
+    def create_unit(self, unit_type: UnitType, owner: Player, position: HexCoord, quantity: int = 1) -> Unit:
+        """创建单位；士兵 quantity 表示该单位栈的人数。"""
         if unit_type == UnitType.SETTLER:
             movement_points = 1
             vision_range = UNIT_CONFIG["settler_vision"]
@@ -31,7 +31,8 @@ class UnitSystem:
             unit_type=unit_type,
             movement_points=movement_points,
             max_movement_points=movement_points,
-            vision_range=vision_range
+            vision_range=vision_range,
+            quantity=max(1, quantity) if unit_type == UnitType.SOLDIER else 1
         )
         
         self.units.append(unit)
@@ -51,6 +52,49 @@ class UnitSystem:
     def get_player_units(self, player: Player) -> List[Unit]:
         """获取玩家的所有单位"""
         return [unit for unit in self.units if unit.owner == player]
+    
+    def split_unit_stack(self, unit: Unit, quantity: int, map_tiles: dict) -> Unit:
+        """从士兵栈中拆出指定人数，返回用于移动/战斗的新栈。"""
+        quantity = max(1, min(quantity, unit.quantity))
+        if unit.unit_type != UnitType.SOLDIER or quantity >= unit.quantity:
+            return unit
+        unit.quantity -= quantity
+        split_unit = Unit(
+            id="",
+            owner=unit.owner,
+            position=unit.position,
+            unit_type=unit.unit_type,
+            movement_points=unit.movement_points,
+            max_movement_points=unit.max_movement_points,
+            vision_range=unit.vision_range,
+            quantity=quantity
+        )
+        self.units.append(split_unit)
+        unit.owner.units.append(split_unit)
+        tile = map_tiles.get(unit.position)
+        if tile:
+            tile.units.append(split_unit)
+        return split_unit
+    
+    def merge_compatible_stacks(self, map_tiles: dict):
+        """合并同玩家、同位置、同移动状态的士兵栈。"""
+        seen = {}
+        for unit in list(self.units):
+            if unit.unit_type != UnitType.SOLDIER:
+                continue
+            key = (
+                unit.owner.id,
+                unit.position,
+                unit.movement_points,
+                unit.max_movement_points,
+                unit.vision_range,
+            )
+            if key not in seen:
+                seen[key] = unit
+                continue
+            primary = seen[key]
+            primary.quantity += unit.quantity
+            self.remove_unit(unit, map_tiles)
     
     def move_unit(self, unit: Unit, target_position: HexCoord, map_tiles: dict) -> bool:
         """移动单位"""

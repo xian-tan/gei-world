@@ -77,10 +77,12 @@ class Unit:
     movement_points: int
     max_movement_points: int
     vision_range: int
+    quantity: int = 1
     
     def __post_init__(self):
         if not self.id:
             self.id = str(uuid.uuid4())
+        self.quantity = max(1, self.quantity)
 
 
 @dataclass

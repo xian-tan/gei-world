@@ -61,7 +61,7 @@ def get_player_statistics(player: Player) -> Dict[str, Any]:
     unit_counts = {}
     for unit in player.units:
         unit_type = unit.unit_type.value
-        unit_counts[unit_type] = unit_counts.get(unit_type, 0) + 1
+        unit_counts[unit_type] = unit_counts.get(unit_type, 0) + unit.quantity
     
     return {
         "name": player.name,

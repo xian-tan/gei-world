@@ -45,12 +45,16 @@ class TurnSystem:
         # 为所有玩家执行回合开始逻辑
         for player in self.players:
             # 收入结算
-            income = player_system.calculate_income(player)
+            income = player_system.calculate_income(player, map_tiles)
             player_system.update_player_gold(player, income)
             
             # 恢复单位移动力
             unit_system.restore_movement_points(player)
-            
+        
+        # 恢复移动力后，合并同格同状态士兵栈
+        unit_system.merge_compatible_stacks(map_tiles)
+        
+        for player in self.players:
             # 更新视野
             vision_system.update_player_vision(player, map_tiles)
     

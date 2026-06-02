@@ -206,7 +206,7 @@ class AggressiveAI(SimpleAI):
             ]
             if unit not in attacking_soldiers:
                 attacking_soldiers.append(unit)
-            if len(attacking_soldiers) >= CITY_CONFIG["defense_value"]:
+            if sum(soldier.quantity for soldier in attacking_soldiers) >= CITY_CONFIG["defense_value"]:
                 return coord
         return None
     

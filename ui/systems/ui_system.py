@@ -182,6 +182,13 @@ class UISystem:
             surface.blit(text, (panel_x + 10, y_offset))
             y_offset += 20
             
+            # 每回合收入
+            current_income = game_state.get('current_income', 0)
+            text = self.font_manager.render_text(f"每回合收入: +{current_income}", 
+                                                'small', COLORS['BLACK'])
+            surface.blit(text, (panel_x + 10, y_offset))
+            y_offset += 20
+            
             # 城市数量
             city_count = len(current_player.cities)
             text = self.font_manager.render_text(f"城市: {city_count}", 
@@ -193,7 +200,7 @@ class UISystem:
             unit_counts = {}
             for unit in current_player.units:
                 unit_type = unit.unit_type.value
-                unit_counts[unit_type] = unit_counts.get(unit_type, 0) + 1
+                unit_counts[unit_type] = unit_counts.get(unit_type, 0) + unit.quantity
             
             for unit_type, count in unit_counts.items():
                 text = self.font_manager.render_text(f"单位 {unit_type}: {count}", 
@@ -243,13 +250,17 @@ class UISystem:
         if selected_unit:
             if selected_tile:
                 lines.append(f"所在地形: {selected_tile.terrain_type.value}")
-            lines.append(f"单位: {selected_unit.unit_type.value}")
+            unit_label = selected_unit.unit_type.value
+            if selected_unit.unit_type == UnitType.SOLDIER:
+                unit_label = f"士兵 x{selected_unit.quantity}"
+            lines.append(f"单位: {unit_label}")
             lines.append(f"移动力: {selected_unit.movement_points}/{selected_unit.max_movement_points}")
             lines.append(f"视野: {selected_unit.vision_range}")
         if selected_city:
             lines.append(f"城市: {selected_city.owner.name}")
             lines.append(f"中心: ({selected_city.center_tile.q}, {selected_city.center_tile.r})")
-            lines.append(f"领土: {len(selected_city.territory_tiles)}")
+            lines.append(f"初始领土: {len(selected_city.territory_tiles)}")
+            lines.append("青色轮廓: 经济范围")
             lines.append("生产: 移民/士兵")
         
         for line in lines[:9]:
@@ -274,7 +285,7 @@ class UISystem:
             and unit.unit_type == UnitType.SOLDIER
             and unit.movement_points > 0
         ]
-        max_count = len(movable_soldiers)
+        max_count = sum(unit.quantity for unit in movable_soldiers)
         if max_count <= 1:
             self.move_soldier_quantity = 1
             return y_offset

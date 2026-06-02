@@ -141,6 +141,7 @@ class GameEngine:
         unit_id = action.params.get("unit_id")
         unit_ids = action.params.get("unit_ids") or ([unit_id] if unit_id else [])
         target = action.params.get("target")
+        move_quantity = max(1, int(action.params.get("move_quantity", 1) or 1))
         
         if not unit_ids:
             return self._fail("移动失败：未指定单位")
@@ -174,13 +175,24 @@ class GameEngine:
                 return self._fail("移动失败：目标不可达，请选择黄色高亮范围内的地块")
             movement_paths[moving_unit.id] = path
         
+        moving_stacks = []
+        path_by_stack_id = {}
+        for moving_unit in units:
+            quantity = move_quantity if len(units) == 1 and moving_unit.unit_type == UnitType.SOLDIER else moving_unit.quantity
+            moving_stack = self.unit_system.split_unit_stack(moving_unit, quantity, self.map_tiles)
+            moving_stacks.append(moving_stack)
+            path_by_stack_id[moving_stack.id] = movement_paths[moving_unit.id]
+        action.params["unit_id"] = moving_stacks[0].id
+        action.params["unit_ids"] = [moving_stack.id for moving_stack in moving_stacks]
+        unit_id = moving_stacks[0].id
+        
         # 先移动所有选中的单位，再统一结算战斗/攻城
         moved_any = False
-        for moving_unit in units:
+        for moving_unit in moving_stacks:
             moved_any = self.unit_system.move_unit(moving_unit, target_coord, self.map_tiles) or moved_any
         if moved_any:
-            for moving_unit in units:
-                self._occupy_intermediate_path_tiles(moving_unit, movement_paths.get(moving_unit.id, []))
+            for moving_unit in moving_stacks:
+                self._occupy_intermediate_path_tiles(moving_unit, path_by_stack_id.get(moving_unit.id, []))
             
             # 检查是否需要战斗
             if self.combat_system.check_for_combat(target_coord, self.map_tiles):
@@ -246,6 +258,7 @@ class GameEngine:
         """执行建造单位行动"""
         city_id = action.params.get("city_id")
         unit_type_str = action.params.get("unit_type")
+        quantity = max(1, int(action.params.get("quantity", 1) or 1))
         
         if not city_id:
             return self._fail("生产失败：未指定城市")
@@ -264,12 +277,12 @@ class GameEngine:
         if city.owner != current_player:
             return self._fail("生产失败：只能在自己的城市生产")
         
-        build_failure = self.city_system.get_build_unit_failure_reason(city, unit_type)
+        build_failure = self.city_system.get_build_unit_failure_reason(city, unit_type, quantity)
         if build_failure:
             return self._fail(build_failure)
         
         # 建造单位
-        unit = self.city_system.build_unit(city, unit_type, self.unit_system, self.map_tiles)
+        unit = self.city_system.build_unit(city, unit_type, self.unit_system, self.map_tiles, quantity)
         if unit:
             self._update_all_visions()
             return True

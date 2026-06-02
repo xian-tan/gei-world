@@ -165,7 +165,8 @@ class GameSaveSystem:
             "position": f"{unit.position.q},{unit.position.r}",
             "movement_points": unit.movement_points,
             "max_movement_points": unit.max_movement_points,
-            "vision_range": unit.vision_range
+            "vision_range": unit.vision_range,
+            "quantity": unit.quantity
         }
     
     def _parse_coord(self, value: str) -> HexCoord:
@@ -254,13 +255,16 @@ class GameSaveSystem:
                         unit_type=UnitType(unit_data["type"]),
                         movement_points=unit_data["movement_points"],
                         max_movement_points=unit_data["max_movement_points"],
-                        vision_range=unit_data["vision_range"]
+                        vision_range=unit_data["vision_range"],
+                        quantity=unit_data.get("quantity", 1)
                     )
                     owner.units.append(unit)
                     engine.unit_system.units.append(unit)
                     tile = map_tiles.get(position)
                     if tile:
                         tile.units.append(unit)
+            
+            engine.unit_system.merge_compatible_stacks(map_tiles)
             
             engine.map_tiles = map_tiles
             engine.map_system.tiles = map_tiles
