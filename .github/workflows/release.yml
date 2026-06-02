@@ -21,8 +21,6 @@ jobs:
             platform: macos
           - os: windows-latest
             platform: windows
-          - os: ubuntu-latest
-            platform: linux
 
     steps:
       - name: Checkout

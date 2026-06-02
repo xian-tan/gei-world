@@ -14,7 +14,6 @@
 
 - macOS：`GeiWorld-macos-v0.1.0.zip`
 - Windows：`GeiWorld-windows-v0.1.0.zip`
-- Linux：`GeiWorld-linux-v0.1.0.zip`
 
 下载后解压，运行其中的 `GeiWorld` 应用或可执行文件即可。
 
@@ -81,7 +80,7 @@ python scripts/build_release.py --version v0.1.0
 
 构建产物会输出到 `release-artifacts/`。
 
-GitHub Actions 已配置在推送 `v*` tag 时自动在 macOS / Windows / Linux 三个平台构建包，并上传到 GitHub Release：
+GitHub Actions 已配置在推送 `v*` tag 时自动在 macOS / Windows 两个平台构建包，并上传到 GitHub Release：
 
 ```bash
 git tag v0.1.0
