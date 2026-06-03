@@ -6,8 +6,8 @@
 
 - UI 可视化游戏已可运行。
 - 核心闭环已具备：新游戏、移动、建城、生产、结束回合、AI 回合、保存/加载、战斗/攻城、胜负、重开。
-- 当前测试基线：`84 passed`。
-- 已开始多人联机前置改造：保留默认轮流回合玩法，并新增同时回合制核心、UI 本地玩家视角、会话抽象、网络 DTO、本机服务端权威原型、本地双客户端调试入口、进程内多人房间 UI 原型和 HTTP + 轮询传输层。
+- 当前测试基线：`86 passed`。
+- 已开始多人联机前置改造：保留默认轮流回合玩法，并新增同时回合制核心、UI 本地玩家视角、会话抽象、网络 DTO、本机服务端权威原型、本地双客户端调试入口、进程内多人房间 UI 原型、HTTP + 轮询传输层和 HTTP 网络会话。
 
 ## 下载运行 v0.1
 
@@ -45,6 +45,7 @@ python scripts/ui_game.py
 ```bash
 ./.conda/bin/python scripts/ui_game.py
 ./.conda/bin/python scripts/multiplayer_http_server.py --host 127.0.0.1 --port 8000
+./.conda/bin/python scripts/remote_multiplayer_demo.py --url http://127.0.0.1:8000
 ./.conda/bin/python -m pytest
 ```
 
