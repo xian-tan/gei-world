@@ -87,6 +87,7 @@ class UIClient:
         self.render_system.selected_tile = None
         self.render_system.clear_selected_unit()
         self.render_system.clear_reachable_tiles()
+        self.render_system.clear_attention_tiles()
         self.render_system.clear_selected_city_economic_tiles()
     
     def _notify(self, message: str):
@@ -175,7 +176,7 @@ class UIClient:
             self._center_camera_on_map()
             
             self._notify(f"游戏开始！玩家: {', '.join(player_names)}")
-            self._notify("新手提示：左键选中单位或城市，按 Q 进入移动模式。")
+            self._notify("新手提示：左键选中单位或城市，右键移动选中单位。")
             self._notify("移动到合适陆地后，按 B 或点击建城按钮建立第一座城市。")
             self._notify("目标：建城、生产士兵，探索并占领对手城市。")
             return True
@@ -373,7 +374,7 @@ class UIClient:
         self.render_system.clear_path_preview()
         if not hovered_coord or hovered_coord not in visible_tiles:
             return
-        if not self.input_system.is_unit_selected() or not self.move_mode_active:
+        if not self.input_system.is_unit_selected():
             return
         if hovered_coord not in self.render_system.reachable_tiles:
             return
@@ -431,6 +432,8 @@ class UIClient:
         
         coord = self._get_tile_at_screen_pos(screen_pos[0], screen_pos[1])
         if not coord:
+            if self._has_cancelable_ui_state():
+                self._clear_ui_selection_state()
             return
         
         tile = self.game_engine.map_tiles.get(coord)
@@ -439,19 +442,16 @@ class UIClient:
         
         current_player = self.game_engine.get_current_player()
         
-        # 根据当前模式处理点击
+        # 根据当前模式处理点击；左键只负责选择/切换，空地取消选中
         if self.input_system.mode == InputMode.NORMAL:
             self._handle_normal_click(tile, current_player)
         elif self.input_system.mode == InputMode.UNIT_SELECTED:
-            if self.move_mode_active:
-                self._handle_unit_move_click(tile, current_player)
-            else:
-                self._handle_unit_selected_click(tile, current_player)
+            self._handle_unit_selected_click(tile, current_player)
         elif self.input_system.mode == InputMode.CITY_SELECTED:
             self._handle_city_selected_click(tile, current_player)
         
-        # 更新选中地块
-        self.render_system.selected_tile = coord
+        if self.input_system.mode != InputMode.NORMAL or self.ui_system.show_city_panel or self.render_system.selected_unit_id:
+            self.render_system.selected_tile = coord
     def _handle_normal_click(self, tile, current_player):
         """处理普通模式点击"""
         if not self._cycle_selectable_on_tile(tile, current_player):
@@ -496,20 +496,22 @@ class UIClient:
         return True
     
     def _select_unit(self, unit):
-        """选中单位，等待玩家按 Q 进入移动模式。"""
+        """选中单位并刷新右键移动范围。"""
         self.move_mode_active = False
         self.input_system.set_mode(InputMode.UNIT_SELECTED, unit.id)
         self.ui_system._close_city_panel()
         self.render_system.set_selected_unit(unit.id)
-        self.render_system.clear_reachable_tiles()
+        self.render_system.clear_attention_tiles()
         self.render_system.clear_path_preview()
         self.render_system.clear_selected_city_economic_tiles()
+        reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
+        self.render_system.set_reachable_tiles(set(reachable_tiles))
         if unit.unit_type == UnitType.SETTLER:
-            self._notify(f"选中移民：移动力 {unit.movement_points}。按 Q 进入移动模式，按 B 或点击建城按钮建城。")
+            self._notify(f"选中移民：移动力 {unit.movement_points}。右键移动，按 B 或点击建城按钮建城。")
         elif unit.unit_type == UnitType.SOLDIER:
-            self._notify(f"选中士兵：{unit.quantity} 名，移动力 {unit.movement_points}。按 Q 进入移动/攻击模式。")
+            self._notify(f"选中士兵：{unit.quantity} 名，移动力 {unit.movement_points}。右键移动/攻击，按 M 全选，按 1-9 设置移动人数。")
         else:
-            self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})，按 Q 进入移动模式。")
+            self._notify(f"选中单位: {unit.unit_type.value} (移动力: {unit.movement_points})，右键移动。")
         if unit.movement_points <= 0:
             self._notify("该单位本回合移动力已用完，请点击结束回合恢复。")
     
@@ -521,6 +523,7 @@ class UIClient:
         self.render_system.selected_tile = city.center_tile
         self.render_system.clear_selected_unit()
         self.render_system.clear_reachable_tiles()
+        self.render_system.clear_attention_tiles()
         economic_tiles = self.game_engine.city_system.get_city_economic_tiles(city, self.game_engine.map_tiles)
         self.render_system.set_selected_city_economic_tiles(economic_tiles)
         self._notify(f"选中城市：当前金币 {current_player.gold}。可在城市面板生产移民或士兵。")
@@ -552,6 +555,7 @@ class UIClient:
             self._notify(move_failure)
             return
         
+        self.render_system.clear_attention_tiles()
         action = GameAction(
             player_id=current_player.id,
             action_type=ActionType.MOVE_UNIT,
@@ -594,13 +598,17 @@ class UIClient:
         self._handle_normal_click(tile, current_player)
     
     def _handle_tile_right_click(self, screen_pos):
-        """处理右键：取消当前选择。"""
+        """处理右键：选中单位时移动。"""
         if self.ui_system.has_active_modal():
             self.ui_system.close_modal()
             return
-        if self._has_cancelable_ui_state():
-            self._clear_ui_selection_state()
-            self._notify("已取消选择")
+        coord = self._get_tile_at_screen_pos(screen_pos[0], screen_pos[1])
+        if not coord:
+            return
+        tile = self.game_engine.map_tiles.get(coord)
+        current_player = self.game_engine.get_current_player()
+        if tile and self.input_system.is_unit_selected():
+            self._handle_unit_move_click(tile, current_player)
     
     def _has_cancelable_ui_state(self) -> bool:
         """是否存在可先取消的 UI 状态。"""
@@ -650,6 +658,49 @@ class UIClient:
         mouse_x, mouse_y = self.input_system.mouse_pos
         self.camera_system.zoom_at(zoom_factor, mouse_x, mouse_y)
     
+    def _handle_soldier_quantity_hotkey(self, key: int) -> bool:
+        """处理选中士兵时的移动数量快捷键。"""
+        if not self.input_system.is_unit_selected():
+            return False
+        unit = self._find_unit_by_id(self.input_system.get_selected_unit_id())
+        current_player = self.game_engine.get_current_player()
+        if not unit or not current_player:
+            return False
+        if unit.owner != current_player or unit.unit_type != UnitType.SOLDIER:
+            return False
+        
+        quantity_by_key = {
+            pygame.K_1: 1,
+            pygame.K_2: 2,
+            pygame.K_3: 3,
+            pygame.K_4: 4,
+            pygame.K_5: 5,
+            pygame.K_6: 6,
+            pygame.K_7: 7,
+            pygame.K_8: 8,
+            pygame.K_9: 9,
+            pygame.K_KP1: 1,
+            pygame.K_KP2: 2,
+            pygame.K_KP3: 3,
+            pygame.K_KP4: 4,
+            pygame.K_KP5: 5,
+            pygame.K_KP6: 6,
+            pygame.K_KP7: 7,
+            pygame.K_KP8: 8,
+            pygame.K_KP9: 9,
+        }
+        max_quantity = max(1, unit.quantity)
+        if key == pygame.K_m:
+            quantity = max_quantity
+        elif key in quantity_by_key:
+            quantity = min(quantity_by_key[key], max_quantity)
+        else:
+            return False
+        
+        self.ui_system.move_soldier_quantity = quantity
+        self._notify(f"移动士兵数量已设为 {quantity}/{max_quantity}")
+        return True
+    
     def _handle_key_press(self, key: int, pressed: bool):
         """处理按键"""
         if not pressed:  # 只处理按下事件
@@ -679,41 +730,12 @@ class UIClient:
                 self.start_game(["玩家1", "AI玩家"])
             return
         
-        if key == pygame.K_q:
-            self._toggle_move_mode()
+        if self._handle_soldier_quantity_hotkey(key):
             return
         
         if key == pygame.K_b:
             self._handle_build_city()
             return
-    
-    def _toggle_move_mode(self):
-        """切换选中单位的移动模式。"""
-        unit_id = self.input_system.get_selected_unit_id()
-        unit = self._find_unit_by_id(unit_id) if unit_id else None
-        current_player = self.game_engine.get_current_player()
-        if not unit or self.input_system.mode != InputMode.UNIT_SELECTED:
-            self._notify("请先左键选中一个单位，再按 Q 进入移动模式。")
-            return
-        if unit.owner != current_player:
-            self._notify("只能移动自己的单位。")
-            return
-        if self.move_mode_active:
-            self.move_mode_active = False
-            self.render_system.clear_reachable_tiles()
-            self.render_system.clear_path_preview()
-            self._notify("已退出移动模式。")
-            return
-        if unit.movement_points <= 0:
-            self._notify("该单位本回合移动力已用完，请点击结束回合恢复。")
-            return
-        reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
-        if not reachable_tiles:
-            self._notify("该单位当前没有可移动目标。")
-            return
-        self.move_mode_active = True
-        self.render_system.set_reachable_tiles(set(reachable_tiles))
-        self._notify("已进入移动模式：左键点击黄色范围内目标地块移动，按 Q 或右键取消。")
     
     def _handle_build_city(self):
         """处理移民建城。"""
@@ -758,10 +780,40 @@ class UIClient:
         else:
             self._notify_action_result(result)
     
-    def _handle_end_turn(self):
-        """处理结束回合"""
+    def _handle_end_turn(self, force: bool = False):
+        """处理结束回合；有单位仍可移动时先确认。"""
         current_player = self.game_engine.get_current_player()
+        if not current_player:
+            return
+        if not force:
+            movable_units = [
+                unit for unit in current_player.units
+                if unit.movement_points > 0
+            ]
+            if movable_units:
+                self.render_system.set_attention_tiles({unit.position for unit in movable_units})
+                self.ui_system.show_modal(
+                    "仍有单位可移动",
+                    [f"还有 {len(movable_units)} 个单位/士兵栈保留移动力。", "橙色轮廓已在地图上标出。", "确定要结束回合吗？"],
+                    [
+                        {
+                            'text': "继续操作",
+                            'callback': self.ui_system.close_modal,
+                            'color': COLORS['LIGHT_GRAY'],
+                            'text_color': COLORS['BLACK']
+                        },
+                        {
+                            'text': "仍然结束回合",
+                            'callback': lambda: self._handle_end_turn(force=True),
+                            'color': COLORS['GREEN'],
+                            'text_color': COLORS['WHITE']
+                        }
+                    ]
+                )
+                return
         
+        self.ui_system.close_modal()
+        self.render_system.clear_attention_tiles()
         action = GameAction(
             player_id=current_player.id,
             action_type=ActionType.END_TURN,

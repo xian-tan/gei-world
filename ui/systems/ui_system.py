@@ -216,11 +216,12 @@ class UISystem:
             move_mode_active = game_state.get('move_mode_active', False)
             help_texts = [
                 "=== 控制说明 ===",
-                "左键: 选择/切换",
-                "Q: 进入/退出移动模式",
-                "黄框: 移动模式可达范围" if move_mode_active else "黄框: 按 Q 后显示",
+                "左键: 选择/切换/空地取消",
+                "右键: 移动选中单位",
+                "黄框: 可右键移动范围" if move_mode_active else "黄框: 选中单位可达范围",
                 "B/建城按钮: 移民建城",
-                "右键: 取消选择",
+                "士兵: M最大，1-9调人数",
+                "ESC: 取消选择",
                 "城市: 生产单位"
             ]
             
@@ -279,19 +280,15 @@ class UISystem:
             return y_offset
         if selected_unit.unit_type != UnitType.SOLDIER:
             return y_offset
-        movable_soldiers = [
-            unit for unit in selected_tile.units
-            if unit.owner == current_player
-            and unit.unit_type == UnitType.SOLDIER
-            and unit.movement_points > 0
-        ]
-        max_count = sum(unit.quantity for unit in movable_soldiers)
+        if selected_unit.owner != current_player or selected_unit.movement_points <= 0:
+            return y_offset
+        max_count = selected_unit.quantity
         if max_count <= 1:
             self.move_soldier_quantity = 1
             return y_offset
         self.move_soldier_quantity = max(1, min(self.move_soldier_quantity, max_count))
         label = self.font_manager.render_text(
-            f"移动士兵数量: {self.move_soldier_quantity}/{max_count}", 'small', COLORS['BLACK']
+            f"移动士兵数量: {self.move_soldier_quantity}/{max_count} (M最大/1-9)", 'small', COLORS['BLACK']
         )
         surface.blit(label, (panel_x + 10, y_offset))
         y_offset += 18

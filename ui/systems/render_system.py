@@ -13,7 +13,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.insert(0, project_root)
 
-from src.models import HexCoord, Tile, TerrainType, Player
+from src.models import HexCoord, Tile, TerrainType, Player, UnitType
 from ui.hex_renderer import HexRenderer
 from ui.ui_config import (
     COLORS, HEX_RADIUS, OFFSET_X, OFFSET_Y, SCREEN_WIDTH, SCREEN_HEIGHT,
@@ -34,6 +34,7 @@ class RenderSystem:
         self.hovered_tile = None
         self.selected_unit_id = None  # 添加选中单位ID
         self.reachable_tiles: Set[HexCoord] = set()
+        self.attention_tiles: Set[HexCoord] = set()
         self.selected_city_economic_tiles: Set[HexCoord] = set()
         self.path_preview: List[HexCoord] = []
         self.minimap_rect: Optional[pygame.Rect] = None
@@ -63,6 +64,14 @@ class RenderSystem:
     def clear_reachable_tiles(self):
         """清除可达地块高亮。"""
         self.reachable_tiles.clear()
+    
+    def set_attention_tiles(self, tiles: Set[HexCoord]):
+        """设置需要玩家注意的地块高亮。"""
+        self.attention_tiles = set(tiles or set())
+    
+    def clear_attention_tiles(self):
+        """清除注意地块高亮。"""
+        self.attention_tiles.clear()
     
     def set_selected_city_economic_tiles(self, tiles: Set[HexCoord]):
         """设置选中城市的经济范围轮廓。"""
@@ -191,6 +200,8 @@ class RenderSystem:
             border_color = COLORS['WHITE']
         elif is_visible and tile.coord in self.reachable_tiles:
             border_color = COLORS['YELLOW']
+        elif is_visible and tile.coord in self.attention_tiles:
+            border_color = COLORS['ORANGE']
         elif is_visible and tile.coord in self.selected_city_economic_tiles:
             border_color = COLORS['ECONOMIC_RANGE']
         elif tile.coord == self.hovered_tile:
@@ -198,7 +209,7 @@ class RenderSystem:
         
         # 绘制六边形
         radius = int(HEX_RADIUS * self.zoom)
-        border_width = 3 if (tile.coord in self.reachable_tiles or tile.coord in self.selected_city_economic_tiles) else (2 if border_color else 1)
+        border_width = 3 if (tile.coord in self.reachable_tiles or tile.coord in self.attention_tiles or tile.coord in self.selected_city_economic_tiles) else (2 if border_color else 1)
         HexRenderer.draw_hex(surface, screen_x, screen_y, color, border_color, 
                            radius, border_width)
         
@@ -237,27 +248,51 @@ class RenderSystem:
         pygame.draw.polygon(surface, COLORS['WHITE'], city_points, 2)
         pygame.draw.polygon(surface, COLORS['BLACK'], city_points, 1)
     def _render_units(self, surface: pygame.Surface, units, screen_x: int, screen_y: int, radius: int):
-        """渲染单位"""
+        """渲染单位；移民和士兵同格时上下错开显示。"""
         if not units:
             return
         
+        settlers = [unit for unit in units if unit.unit_type == UnitType.SETTLER]
+        soldiers = [unit for unit in units if unit.unit_type == UnitType.SOLDIER]
+        groups = []
+        if settlers:
+            groups.append((UnitType.SETTLER, settlers))
+        if soldiers:
+            groups.append((UnitType.SOLDIER, soldiers))
+        offsets = [0] if len(groups) == 1 else [-max(8, radius // 3), max(8, radius // 3)]
+        
+        for (unit_type, group_units), offset_y in zip(groups, offsets):
+            count = sum(unit.quantity for unit in group_units)
+            has_selected_unit = any(unit.id == self.selected_unit_id for unit in group_units)
+            color = self._get_unit_color(group_units[0])
+            marker_center = (screen_x, screen_y - radius // 3 + offset_y)
+            self._draw_unit_marker(surface, unit_type, color, marker_center, count, has_selected_unit, radius)
+    
+    def _draw_unit_marker(self, surface: pygame.Surface, unit_type: UnitType, color: tuple,
+                          center: tuple, count: int, selected: bool, radius: int):
+        """绘制单个单位类型标识。"""
         unit_size = max(6, int(radius * 0.3))
+        if unit_type == UnitType.SETTLER:
+            x, y = center
+            points = [(x, y - unit_size), (x + unit_size, y + unit_size), (x - unit_size, y + unit_size)]
+            pygame.draw.polygon(surface, color, points)
+            if selected:
+                pygame.draw.polygon(surface, COLORS['WHITE'], points, 2)
+            pygame.draw.polygon(surface, COLORS['BLACK'], points, 1)
+            if count > 1:
+                font = pygame.font.Font(None, 15)
+                text = font.render(str(count), True, COLORS['WHITE'])
+                surface.blit(text, text.get_rect(center=center))
+            return
         
-        has_selected_unit = any(unit.id == self.selected_unit_id for unit in units)
-        total_count = sum(unit.quantity for unit in units)
-        color = self._get_unit_color(units[0])
-        pygame.draw.circle(surface, color, (screen_x, screen_y - radius//3), unit_size)
-        
-        if has_selected_unit:
-            pygame.draw.circle(surface, COLORS['WHITE'], (screen_x, screen_y - radius//3), unit_size + 2, 2)
-        
-        pygame.draw.circle(surface, COLORS['BLACK'], (screen_x, screen_y - radius//3), unit_size, 1)
-        
-        if total_count > 1:
+        pygame.draw.circle(surface, color, center, unit_size)
+        if selected:
+            pygame.draw.circle(surface, COLORS['WHITE'], center, unit_size + 2, 2)
+        pygame.draw.circle(surface, COLORS['BLACK'], center, unit_size, 1)
+        if count > 1:
             font = pygame.font.Font(None, 16)
-            text = font.render(str(total_count), True, COLORS['WHITE'])
-            text_rect = text.get_rect(center=(screen_x, screen_y - radius//3))
-            surface.blit(text, text_rect)
+            text = font.render(str(count), True, COLORS['WHITE'])
+            surface.blit(text, text.get_rect(center=center))
     
     def _get_player_color(self, player: Player) -> Tuple[int, int, int]:
         """获取玩家颜色"""
@@ -306,6 +341,7 @@ class RenderSystem:
         offset_x = minimap_x + (MINIMAP_WIDTH - map_width * scale) / 2
         offset_y = minimap_y + (MINIMAP_HEIGHT - map_height * scale) / 2
         
+        mini_radius = max(2, int(HEX_RADIUS * scale) + 1)
         for coord, tile in tiles.items():
             world_x, world_y = points[coord]
             mini_x = int(offset_x + (world_x - min_x) * scale)
@@ -321,7 +357,7 @@ class RenderSystem:
                 color = COLORS['EXPLORED'] if tile.terrain_type == TerrainType.LAND else COLORS['DARK_GRAY']
             else:
                 color = COLORS['BLACK']
-            pygame.draw.rect(surface, color, pygame.Rect(mini_x, mini_y, 3, 3))
+            pygame.draw.polygon(surface, color, HexRenderer.get_hex_corners(mini_x, mini_y, mini_radius))
         
         left, top, right, bottom = self._get_visible_world_bounds()
         view_x = int(offset_x + (left - min_x) * scale)

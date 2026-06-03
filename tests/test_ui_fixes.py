@@ -124,7 +124,7 @@ def test_ui_fixes():
         settler_tile = client.game_engine.map_tiles[settler.position]
         client.ui_system.messages.clear()
         client._handle_normal_click(settler_tile, player)
-        assert any("建城" in message and "右键" not in message for message in client.ui_system.messages)
+        assert any("建城" in message and "右键移动" in message for message in client.ui_system.messages)
         
         client.game_engine.unit_system.remove_unit(settler, client.game_engine.map_tiles)
         city = client.game_engine.city_system.create_city(player, settler.position, client.game_engine.map_tiles)
@@ -183,8 +183,8 @@ def test_ui_fixes():
         print("- 按 SPACE 开始游戏")
         print("- 左键点击选择单位或城市")
         print("- B 或建城按钮: 选中移民后建城")
-        print("- 右键取消选择")
-        print("- 选中单位后按 Q，再左键点击黄色范围移动")
+        print("- 左键空地取消选择")
+        print("- 选中单位后右键点击黄色范围移动")
         print("- WASD 或方向键移动地图")
         print("- 滚轮缩放")
         
@@ -219,7 +219,7 @@ def test_path_preview_state_and_hover_path():
     client._center_camera_on_map()
     client._select_unit(soldier)
     assert not client.move_mode_active
-    assert not client.render_system.reachable_tiles
+    assert client.render_system.reachable_tiles
     
     path = [start, middle, target]
     client.render_system.set_path_preview(path)
@@ -231,10 +231,6 @@ def test_path_preview_state_and_hover_path():
     client.input_system.mouse_pos = client.camera_system.world_to_screen(world_x, world_y)
     visible_tiles = client.game_engine.vision_system.get_visible_tiles(player.id)
     visible_tiles.update(path)
-    client._update_hover_path_preview(visible_tiles)
-    assert not client.render_system.path_preview
-    client._handle_key_press(pygame.K_q, True)
-    assert client.move_mode_active
     client._update_hover_path_preview(visible_tiles)
     assert client.render_system.path_preview == path
     surface = pygame.Surface((800, 600))
@@ -248,6 +244,8 @@ def test_selection_cycle_build_city_and_minimap():
     from ui.systems.input_system import InputMode
     from src.models import HexCoord, UnitType, TerrainType
     from src.config import CITY_CONFIG
+    from ui.hex_renderer import HexRenderer
+    from ui.ui_config import OFFSET_X, OFFSET_Y
     
     pygame.init()
     client = UIClient()
@@ -276,7 +274,11 @@ def test_selection_cycle_build_city_and_minimap():
         for coord in client.render_system.selected_city_economic_tiles
     )
     
-    client._handle_tile_right_click((0, 0))
+    empty_tile = next(
+        candidate for candidate in client.game_engine.map_tiles.values()
+        if not candidate.units and not candidate.city
+    )
+    client._handle_city_selected_click(empty_tile, player)
     assert client.input_system.mode == InputMode.NORMAL
     assert client.render_system.selected_unit_id is None
     assert not client.render_system.reachable_tiles
@@ -304,8 +306,8 @@ def test_selection_cycle_build_city_and_minimap():
     client._handle_unit_selected_click(client.game_engine.map_tiles[target], player)
     assert moving_unit.position == tile.coord
     client._select_unit(moving_unit)
-    client._handle_key_press(pygame.K_q, True)
-    client._handle_unit_move_click(client.game_engine.map_tiles[target], player)
+    world_x, world_y = HexRenderer.hex_to_pixel(target.q, target.r, OFFSET_X, OFFSET_Y)
+    client._handle_tile_right_click(client.camera_system.world_to_screen(world_x, world_y))
     assert moving_unit.movement_points == 0
     assert client.input_system.mode == InputMode.NORMAL
     
@@ -342,11 +344,16 @@ def test_batch_soldier_production_and_movement():
     target = next(coord for coord in city.center_tile.neighbors() if coord in client.game_engine.map_tiles)
     client.game_engine.map_tiles[target].terrain_type = TerrainType.LAND
     client._select_unit(soldiers[0])
-    client.ui_system.move_soldier_quantity = 2
+    client._handle_key_press(pygame.K_m, True)
+    assert client.ui_system.move_soldier_quantity == 3
+    client._handle_key_press(pygame.K_9, True)
+    assert client.ui_system.move_soldier_quantity == 3
+    client._handle_key_press(pygame.K_2, True)
+    assert client.ui_system.move_soldier_quantity == 2
+    assert any("移动士兵数量已设为 2/3" in message for message in client.ui_system.messages)
     client._handle_unit_selected_click(client.game_engine.map_tiles[target], player)
     assert all(unit.position == city.center_tile for unit in soldiers)
     client._select_unit(soldiers[0])
-    client._handle_key_press(pygame.K_q, True)
     client._handle_unit_move_click(client.game_engine.map_tiles[target], player)
     soldier_stacks = [unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]
     moved = [unit for unit in soldier_stacks if unit.position == target]
@@ -404,7 +411,6 @@ def test_split_soldier_stack_keeps_moved_stack_selected_and_saved():
     
     client._select_unit(soldier_stack)
     client.ui_system.move_soldier_quantity = 25
-    client._handle_key_press(pygame.K_q, True)
     client._handle_unit_move_click(client.game_engine.map_tiles[first_target], player)
     selected_after_first_move = client._find_unit_by_id(client.input_system.get_selected_unit_id())
     assert selected_after_first_move is not None
@@ -441,6 +447,9 @@ def test_ai_turn_auto_returns_to_human_view():
     human_player, ai_player = client.game_engine.player_system.players
     ai_player.gold = 100
     client._handle_end_turn()
+    assert client.ui_system.has_active_modal()
+    assert client.render_system.attention_tiles
+    client._handle_end_turn(force=True)
     assert client.game_engine.get_current_player() == human_player
     assert not client.ai_manager.is_ai_player(client.game_engine.get_current_player().id)
 
@@ -476,6 +485,26 @@ def test_multi_save_slots_and_player_colors():
     assert COLORS['PLAYER_3'] != (255, 255, 100)
     assert all(color != COLORS['YELLOW'] for color in colors)
     assert render._get_player_color(Player(id="player_2", name="A", gold=0)) == COLORS['PLAYER_3']
+
+
+
+def test_unit_markers_and_minimap_rendering():
+    """测试移民/士兵同格错开渲染和小地图紧密绘制入口。"""
+    from ui.systems.render_system import RenderSystem
+    from src.models import Player, Unit, UnitType, HexCoord, Tile, TerrainType
+    
+    pygame.init()
+    render = RenderSystem()
+    surface = pygame.Surface((800, 600))
+    player = Player(id="player_0", name="玩家", gold=0)
+    coord = HexCoord(0, 0)
+    settler = Unit("settler", player, coord, UnitType.SETTLER, 1, 1, 1)
+    soldier = Unit("soldier", player, coord, UnitType.SOLDIER, 2, 2, 2, quantity=8)
+    tile = Tile(coord, TerrainType.LAND, owner=player, units=[settler, soldier])
+    render.render_map(surface, {coord: tile}, {coord}, {coord}, player)
+    assert surface.get_bounding_rect().width > 0
+    render.render_minimap(surface, {coord: tile}, {coord}, {coord})
+    assert render.minimap_rect is not None
 
 
 
@@ -580,5 +609,6 @@ if __name__ == "__main__":
     test_batch_soldier_production_and_movement()
     test_ai_turn_auto_returns_to_human_view()
     test_multi_save_slots_and_player_colors()
+    test_unit_markers_and_minimap_rendering()
     test_input_system_slider_drag_captures_mouse()
     test_start_menu_and_game_over_keys()
