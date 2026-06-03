@@ -37,6 +37,11 @@ def test_http_network_session_polls_view_and_turn_status():
         assert guest_session.can_player_act(guest_player.id)
         assert host_session.get_visible_tiles(host_player.id)
         assert host_session.get_explored_tiles(host_player.id)
+        mirror = host_session.engine
+        assert mirror.game_started
+        assert mirror.map_tiles
+        assert mirror.player_system.get_player_by_id(host_player.id)
+        assert mirror.turn_system.mode == "simultaneous"
     finally:
         http_server.shutdown()
         http_server.server_close()

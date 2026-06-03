@@ -549,6 +549,41 @@ def test_local_multiplayer_ui_supports_sequential_switching():
     assert client._can_controlled_player_act()
 
 
+def test_http_multiplayer_ui_connects_and_switches_clients():
+    """测试 UI 可连接 HTTP 多人服务并切换客户端视角。"""
+    from threading import Thread
+    from src.game_session import HTTPNetworkSession
+    from src.http_multiplayer import create_http_server
+    from ui.client_controller import UIClient
+    
+    http_server = create_http_server("127.0.0.1", 0)
+    thread = Thread(target=http_server.serve_forever, daemon=True)
+    thread.start()
+    host, port = http_server.server_address
+    try:
+        pygame.init()
+        client = UIClient()
+        base_url = f"http://{host}:{port}"
+        assert client._start_http_multiplayer(base_url=base_url, turn_mode="simultaneous", map_seed=123)
+        assert isinstance(client.session, HTTPNetworkSession)
+        assert client.game_started
+        assert len(client.multiplayer_sessions) == 2
+        assert client._get_controlled_player().id == "player_0"
+        assert client.game_engine.map_tiles
+        status = client._get_game_state()['multiplayer_status']
+        assert status['room_id'] == client.multiplayer_room_id
+        assert status['visible_tile_count'] > 0
+        client._handle_end_turn(force=True)
+        assert not client._can_controlled_player_act()
+        assert client._switch_multiplayer_client()
+        assert isinstance(client.session, HTTPNetworkSession)
+        assert client._get_controlled_player().id == "player_1"
+        assert client._can_controlled_player_act()
+    finally:
+        http_server.shutdown()
+        http_server.server_close()
+
+
 def test_multi_save_slots_and_player_colors():
     """测试 UI 多存档槽位和稳定的非亮黄色玩家颜色。"""
     from ui.client_controller import UIClient

@@ -11,7 +11,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
-from src.game_session import LocalGameSession, NetworkGameSession
+from src.game_session import HTTPNetworkSession, LocalGameSession, NetworkGameSession
+from src.http_multiplayer import HTTPMultiplayerClient
 from src.models import GameAction, ActionType, HexCoord, UnitType, Player
 from src.multiplayer_server import MultiplayerServer
 from src.systems.ai_system import AIManager
@@ -245,8 +246,47 @@ class UIClient:
         self._notify("按 TAB 在玩家1/玩家2视角间切换。")
         return True
     
+    def _start_http_multiplayer(self, base_url: str = "http://127.0.0.1:8000",
+                                turn_mode: str = "simultaneous", map_seed: int = 123):
+        """连接 HTTP 多人服务并创建调试双人房间。"""
+        try:
+            http_client = HTTPMultiplayerClient(base_url, timeout=1.5)
+            created = http_client.create_room("玩家1", max_players=2, turn_mode=turn_mode, map_seed=map_seed)
+            if not created.get("success"):
+                self._notify(f"HTTP 多人创建失败：{created.get('message', '未知错误')}")
+                return False
+            room_id = created["room"]["room_id"]
+            host_client_id = created["client_id"]
+            joined = http_client.join_room(room_id, "玩家2")
+            if not joined.get("success"):
+                self._notify(f"HTTP 多人加入失败：{joined.get('message', '未知错误')}")
+                return False
+            guest_client_id = joined["client_id"]
+            host_session = HTTPNetworkSession(http_client, room_id, host_client_id)
+            if not host_session.start_game(turn_mode=turn_mode):
+                self._notify("HTTP 多人房间启动失败")
+                return False
+            guest_session = HTTPNetworkSession(http_client, room_id, guest_client_id)
+        except Exception as error:
+            self._notify(f"HTTP 多人连接失败：{error}")
+            return False
+        self.multiplayer_server = None
+        self.multiplayer_room_id = room_id
+        self.multiplayer_sessions = {
+            host_client_id: host_session,
+            guest_client_id: guest_session,
+        }
+        self.ai_manager = AIManager()
+        self.game_started = True
+        self._activate_multiplayer_client(host_client_id, notify=False)
+        self._center_camera_on_map()
+        self.ui_system.close_modal()
+        self._notify(f"HTTP 多人房间已开始：{turn_mode}")
+        self._notify("按 TAB 在玩家1/玩家2视角间切换。")
+        return True
+    
     def _activate_multiplayer_client(self, client_id: str, notify: bool = True) -> bool:
-        """切换当前 UI 到指定本机多人客户端。"""
+        """切换当前 UI 到指定多人客户端。"""
         session = self.multiplayer_sessions.get(client_id)
         if not session:
             return False
@@ -284,6 +324,33 @@ class UIClient:
                 {
                     'text': "同时回合多人",
                     'callback': lambda: self._start_local_multiplayer("simultaneous"),
+                    'color': COLORS['GREEN'],
+                    'text_color': COLORS['WHITE']
+                },
+                {
+                    'text': "取消",
+                    'callback': self.ui_system.close_modal,
+                    'color': COLORS['LIGHT_GRAY'],
+                    'text_color': COLORS['BLACK']
+                }
+            ]
+        )
+    
+    def _show_http_multiplayer_modal(self):
+        """显示 HTTP 多人模式选择。"""
+        self.ui_system.show_modal(
+            "HTTP 多人原型",
+            ["连接 http://127.0.0.1:8000", "需先启动 scripts/multiplayer_http_server.py"],
+            [
+                {
+                    'text': "HTTP 轮流回合",
+                    'callback': lambda: self._start_http_multiplayer(turn_mode="sequential"),
+                    'color': COLORS['BLUE'],
+                    'text_color': COLORS['WHITE']
+                },
+                {
+                    'text': "HTTP 同时回合",
+                    'callback': lambda: self._start_http_multiplayer(turn_mode="simultaneous"),
                     'color': COLORS['GREEN'],
                     'text_color': COLORS['WHITE']
                 },
@@ -523,6 +590,7 @@ class UIClient:
             "SPACE 单人轮流回合",
             "T 单人同时回合",
             "M 本机多人原型",
+            "H 连接HTTP多人(本机)",
             "L 加载游戏",
             "ESC 退出",
         ]
@@ -560,17 +628,24 @@ class UIClient:
             self.render_system.set_path_preview(path)
     
     def _get_multiplayer_status(self) -> Optional[Dict[str, Any]]:
-        """获取进程内多人房间状态摘要。"""
-        if not self.multiplayer_server or not self.multiplayer_room_id:
+        """获取多人房间状态摘要。"""
+        if not self.multiplayer_room_id:
             return None
-        room_state = self.multiplayer_server.get_room_state(self.multiplayer_room_id)
         active_player_id = self.session.player_id if hasattr(self.session, 'player_id') else self.local_player_id
         view_response = None
-        if self.active_multiplayer_client_id:
-            view_response = self.multiplayer_server.get_player_view(
-                self.multiplayer_room_id,
-                self.active_multiplayer_client_id
-            )
+        if self.multiplayer_server:
+            room_state = self.multiplayer_server.get_room_state(self.multiplayer_room_id)
+            if self.active_multiplayer_client_id:
+                view_response = self.multiplayer_server.get_player_view(
+                    self.multiplayer_room_id,
+                    self.active_multiplayer_client_id
+                )
+        elif hasattr(self.session, 'http_client'):
+            room_response = self.session.http_client.get_room_state(self.multiplayer_room_id)
+            room_state = room_response.get("room", {}) if room_response.get("success") else {}
+            view_response = self.session.get_player_view()
+        else:
+            return None
         view = view_response.get("view") if view_response and view_response.get("success") else None
         visible_tile_count = 0
         explored_tile_count = 0
@@ -927,6 +1002,8 @@ class UIClient:
                 self.start_game(["玩家1", "AI玩家"], turn_mode="simultaneous")
             elif key == pygame.K_m:
                 self._show_local_multiplayer_modal()
+            elif key == pygame.K_h:
+                self._show_http_multiplayer_modal()
             elif key == pygame.K_l:
                 self._handle_load_game()
             return
