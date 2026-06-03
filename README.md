@@ -115,6 +115,7 @@ git push origin v0.1.0
 - [后续执行计划](docs/后续执行计划.md)
 - [多人联机与双回合模式规划](docs/多人联机与回合模式规划.md)
 - [多人联机联调指南](docs/多人联机联调指南.md)
+- [Tailscale 非局域网联机指南](docs/Tailscale非局域网联机指南.md)
 - [需求文档](docs/需求文档.md)
 
 ## 项目结构
