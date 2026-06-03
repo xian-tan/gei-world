@@ -50,6 +50,7 @@ class UIClient:
         self.running = True
         self.game_started = False
         self.move_mode_active = False
+        self.local_player_id = None
         
         # 设置输入回调
         self._setup_input_callbacks()
@@ -94,6 +95,19 @@ class UIClient:
         """同时输出控制台和界面消息。"""
         print(message)
         self.ui_system.add_message(message)
+    
+    def _get_controlled_player(self) -> Optional[Player]:
+        """获取当前 UI 视角下可操作/查看的玩家。"""
+        if self.game_engine.turn_system.mode == "simultaneous" and self.local_player_id:
+            player = self.game_engine.player_system.get_player_by_id(self.local_player_id)
+            if player:
+                return player
+        return self.game_engine.get_current_player()
+    
+    def _can_controlled_player_act(self) -> bool:
+        """当前 UI 玩家是否还能在本回合行动。"""
+        player = self._get_controlled_player()
+        return bool(player and self.game_engine.turn_system.can_player_act(player.id))
     
     def _execute_action_and_notify(self, action: GameAction):
         """执行行动并显示引擎返回的结构化结果。"""
@@ -162,12 +176,13 @@ class UIClient:
             return event.message or "回合结束"
         return event.message
     
-    def start_game(self, player_names: list, map_seed: int = None):
+    def start_game(self, player_names: list, map_seed: int = None, turn_mode: str = "sequential"):
         """开始游戏"""
-        new_engine = GameEngine()
-        if new_engine.initialize_game(player_names, map_seed):
+        new_engine = GameEngine(turn_mode=turn_mode)
+        if new_engine.initialize_game(player_names, map_seed, turn_mode=turn_mode):
             self.game_engine = new_engine
             self.game_started = True
+            self.local_player_id = self.game_engine.player_system.players[0].id if self.game_engine.player_system.players else None
             self._clear_ui_selection_state()
             self.ui_system.close_modal()
             self._setup_ai_players()
@@ -317,9 +332,9 @@ class UIClient:
             self.render_system.zoom = self.camera_system.get_zoom()
             
             # 渲染地图
-            current_player = self.game_engine.get_current_player()
-            visible_tiles = self.game_engine.vision_system.get_visible_tiles(current_player.id)
-            explored_tiles = self.game_engine.vision_system.get_explored_tiles(current_player.id)
+            view_player = self._get_controlled_player()
+            visible_tiles = self.game_engine.vision_system.get_visible_tiles(view_player.id) if view_player else set()
+            explored_tiles = self.game_engine.vision_system.get_explored_tiles(view_player.id) if view_player else set()
             
             self._update_hover_path_preview(visible_tiles)
             self.render_system.render_map(
@@ -327,7 +342,7 @@ class UIClient:
                 self.game_engine.map_tiles,
                 visible_tiles,
                 explored_tiles,
-                current_player
+                view_player
             )
             
             # 渲染UI
@@ -391,17 +406,21 @@ class UIClient:
     
     def _get_game_state(self) -> Dict[str, Any]:
         """获取游戏状态快照"""
-        current_player = self.game_engine.get_current_player()
-        current_income = self.game_engine.player_system.calculate_income(current_player, self.game_engine.map_tiles) if current_player else 0
+        controlled_player = self._get_controlled_player()
+        current_income = self.game_engine.player_system.calculate_income(controlled_player, self.game_engine.map_tiles) if controlled_player else 0
         selected_coord = self.render_system.selected_tile
         selected_tile = self.game_engine.map_tiles.get(selected_coord) if selected_coord else None
         selected_unit = self._find_unit_by_id(self.input_system.get_selected_unit_id()) if self.input_system.is_unit_selected() else None
         selected_city = self.ui_system.selected_city if self.ui_system.show_city_panel else None
+        turn_status = self.game_engine.turn_system.get_turn_status()
         
         return {
-            'current_player': current_player,
+            'current_player': controlled_player,
             'current_income': current_income,
             'turn_number': self.game_engine.turn_system.turn_number,
+            'turn_mode': self.game_engine.turn_system.mode,
+            'turn_status': turn_status,
+            'can_act': self._can_controlled_player_act(),
             'game_over': self.game_engine.game_over,
             'winner': self.game_engine.winner,
             'selected_coord': selected_coord,
@@ -440,7 +459,7 @@ class UIClient:
         if not tile:
             return
         
-        current_player = self.game_engine.get_current_player()
+        current_player = self._get_controlled_player()
         
         # 根据当前模式处理点击；左键只负责选择/切换，空地取消选中
         if self.input_system.mode == InputMode.NORMAL:
@@ -606,7 +625,7 @@ class UIClient:
         if not coord:
             return
         tile = self.game_engine.map_tiles.get(coord)
-        current_player = self.game_engine.get_current_player()
+        current_player = self._get_controlled_player()
         if tile and self.input_system.is_unit_selected():
             self._handle_unit_move_click(tile, current_player)
     
@@ -663,7 +682,7 @@ class UIClient:
         if not self.input_system.is_unit_selected():
             return False
         unit = self._find_unit_by_id(self.input_system.get_selected_unit_id())
-        current_player = self.game_engine.get_current_player()
+        current_player = self._get_controlled_player()
         if not unit or not current_player:
             return False
         if unit.owner != current_player or unit.unit_type != UnitType.SOLDIER:
@@ -741,7 +760,7 @@ class UIClient:
         """处理移民建城。"""
         unit_id = self.input_system.get_selected_unit_id()
         unit = self._find_unit_by_id(unit_id) if unit_id else None
-        current_player = self.game_engine.get_current_player()
+        current_player = self._get_controlled_player()
         if not unit:
             self._notify("请先选中一个移民，再建城。")
             return
@@ -763,7 +782,9 @@ class UIClient:
     
     def _handle_build_unit(self, city_id: str, unit_type: UnitType, quantity: int = 1):
         """处理建造单位。"""
-        current_player = self.game_engine.get_current_player()
+        current_player = self._get_controlled_player()
+        if not current_player:
+            return
         quantity = 1 if unit_type == UnitType.SETTLER else max(1, quantity)
         action = GameAction(
             player_id=current_player.id,
@@ -782,7 +803,7 @@ class UIClient:
     
     def _handle_end_turn(self, force: bool = False):
         """处理结束回合；有单位仍可移动时先确认。"""
-        current_player = self.game_engine.get_current_player()
+        current_player = self._get_controlled_player()
         if not current_player:
             return
         if not force:
@@ -823,7 +844,8 @@ class UIClient:
         result = self._execute_action_and_notify(action)
         if result.success:
             self._clear_ui_selection_state()
-            self._process_ai_turns()
+            if self.game_engine.turn_system.mode == "sequential":
+                self._process_ai_turns()
     
     def _format_save_summary(self, save_info: Dict[str, Any]) -> str:
         """格式化存档列表项。"""
@@ -917,6 +939,8 @@ class UIClient:
             
             self.game_engine = loaded_engine
             self.game_started = True
+            if not self.game_engine.player_system.get_player_by_id(self.local_player_id):
+                self.local_player_id = self.game_engine.player_system.players[0].id if self.game_engine.player_system.players else None
             self._restore_ai_players_from_engine()
             self._clear_ui_selection_state()
             self.ui_system.close_modal()

@@ -455,6 +455,32 @@ def test_ai_turn_auto_returns_to_human_view():
 
 
 
+def test_simultaneous_mode_ui_uses_local_player_view():
+    """测试同时回合模式下 UI 使用本地玩家而不是首个可行动玩家。"""
+    from ui.client_controller import UIClient
+    from ui.systems.input_system import InputMode
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "玩家2"], 123, turn_mode="simultaneous")
+    player1, player2 = client.game_engine.player_system.players
+    assert client.local_player_id == player1.id
+    assert client._get_controlled_player() == player1
+    
+    client.local_player_id = player2.id
+    assert client._get_controlled_player() == player2
+    player2_tile = client.game_engine.map_tiles[player2.units[0].position]
+    client._handle_normal_click(player2_tile, client._get_controlled_player())
+    assert client.input_system.mode == InputMode.UNIT_SELECTED
+    assert client.input_system.get_selected_unit_id() == player2.units[0].id
+    
+    client._handle_end_turn(force=True)
+    assert player2.id in client.game_engine.turn_system.ended_player_ids
+    assert not client._can_controlled_player_act()
+    assert client._get_game_state()['turn_mode'] == "simultaneous"
+    assert not client._get_game_state()['can_act']
+
+
 def test_multi_save_slots_and_player_colors():
     """测试 UI 多存档槽位和稳定的非亮黄色玩家颜色。"""
     from ui.client_controller import UIClient

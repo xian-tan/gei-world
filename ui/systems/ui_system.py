@@ -171,10 +171,17 @@ class UISystem:
             y_offset = panel_y + 10
             
             # 玩家名称
-            text = self.font_manager.render_text(f"当前玩家: {current_player.name}", 
+            player_label = "本地玩家" if game_state.get('turn_mode') == "simultaneous" else "当前玩家"
+            text = self.font_manager.render_text(f"{player_label}: {current_player.name}", 
                                                 'medium', COLORS['BLACK'])
             surface.blit(text, (panel_x + 10, y_offset))
             y_offset += 25
+            
+            if game_state.get('turn_mode') == "simultaneous":
+                status_text = "可行动" if game_state.get('can_act', True) else "本回合已结束"
+                text = self.font_manager.render_text(f"状态: {status_text}", 'small', COLORS['BLACK'])
+                surface.blit(text, (panel_x + 10, y_offset))
+                y_offset += 20
             
             # 金币
             text = self.font_manager.render_text(f"金币: {current_player.gold}", 
@@ -521,16 +528,21 @@ class UISystem:
     def _render_turn_info(self, surface: pygame.Surface, game_state: Dict[str, Any]):
         """渲染回合信息"""
         turn_number = game_state.get('turn_number', 1)
-        text = self.font_manager.render_text(f"回合 {turn_number}", 'medium', COLORS['WHITE'])
+        turn_mode = game_state.get('turn_mode', 'sequential')
+        mode_label = "同时回合" if turn_mode == "simultaneous" else "轮流回合"
+        text = self.font_manager.render_text(f"回合 {turn_number} · {mode_label}", 'medium', COLORS['WHITE'])
         surface.blit(text, (10, 10))
         
         # 结束回合按钮
+        can_act = game_state.get('can_act', True)
         end_turn_button = Button(
             rect=pygame.Rect(10, 50, 100, 30),
-            text="结束回合",
+            text="结束回合" if can_act else "已结束",
             callback=self._end_turn,
+            enabled=can_act,
             color=COLORS['GREEN'],
-            text_color=COLORS['WHITE']
+            text_color=COLORS['WHITE'],
+            disabled_message="本回合已结束，等待其他玩家。"
         )
         self._draw_button(surface, end_turn_button)
         
@@ -561,8 +573,10 @@ class UISystem:
                 rect=pygame.Rect(300, 50, 90, 30),
                 text="建城(B)",
                 callback=self._build_city,
+                enabled=can_act,
                 color=COLORS['PURPLE'],
-                text_color=COLORS['WHITE']
+                text_color=COLORS['WHITE'],
+                disabled_message="本回合已结束，无法继续建城。"
             )
             self._draw_button(surface, build_city_button)
             buttons.append(build_city_button)
