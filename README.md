@@ -113,6 +113,7 @@ git push origin v0.1.0
 - [项目状态](docs/PROJECT_STATUS.md)
 - [后续执行计划](docs/后续执行计划.md)
 - [多人联机与双回合模式规划](docs/多人联机与回合模式规划.md)
+- [多人联机联调指南](docs/多人联机联调指南.md)
 - [需求文档](docs/需求文档.md)
 
 ## 项目结构
