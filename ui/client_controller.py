@@ -93,6 +93,7 @@ class UIClient:
         self.input_system.on_mouse_down = self.ui_system.handle_mouse_down
         self.input_system.on_mouse_drag = self.ui_system.handle_mouse_drag
         self.input_system.on_mouse_up = self.ui_system.handle_mouse_up
+        self.input_system.on_text_input = self.ui_system.handle_text_input
     
     def _setup_ui_callbacks(self):
         """设置UI系统回调"""
@@ -458,40 +459,56 @@ class UIClient:
             ]
         )
     
+    def _get_http_form_values(self) -> Dict[str, str]:
+        values = self.ui_system.get_modal_input_values()
+        values.setdefault("base_url", self._get_http_base_url())
+        values.setdefault("turn_mode", os.environ.get("GEI_WORLD_TURN_MODE", "simultaneous"))
+        return values
+    
     def _show_http_multiplayer_modal(self):
         """显示 HTTP 多人模式选择。"""
         base_url = self._get_http_base_url()
         self.ui_system.show_modal(
             "HTTP 多人原型",
-            [f"服务: {base_url}", "可用 GEI_WORLD_HTTP_URL / ROOM_ID / CLIENT_ID 覆盖"],
+            ["填写服务/房间信息；TAB 切换输入框。"],
             [
                 {
-                    'text': "创建调试房(轮流)",
-                    'callback': lambda: self._start_http_multiplayer(turn_mode="sequential"),
-                    'color': COLORS['BLUE'],
-                    'text_color': COLORS['WHITE']
-                },
-                {
-                    'text': "创建调试房(同时)",
-                    'callback': lambda: self._start_http_multiplayer(turn_mode="simultaneous"),
+                    'text': "创建调试房",
+                    'callback': lambda: self._start_http_multiplayer(
+                        base_url=self._get_http_form_values().get("base_url"),
+                        turn_mode=self._get_http_form_values().get("turn_mode", "simultaneous")
+                    ),
                     'color': COLORS['GREEN'],
                     'text_color': COLORS['WHITE']
                 },
                 {
                     'text': "仅创建等待房",
-                    'callback': lambda: self._create_http_room(turn_mode=os.environ.get("GEI_WORLD_TURN_MODE", "simultaneous")),
+                    'callback': lambda: self._create_http_room(
+                        base_url=self._get_http_form_values().get("base_url"),
+                        turn_mode=self._get_http_form_values().get("turn_mode", "simultaneous"),
+                        host_name=self._get_http_form_values().get("player_name", "玩家1") or "玩家1"
+                    ),
                     'color': COLORS['ORANGE'],
                     'text_color': COLORS['BLACK']
                 },
                 {
-                    'text': "加入环境变量房间",
-                    'callback': self._join_http_multiplayer_room,
+                    'text': "加入房间",
+                    'callback': lambda: self._join_http_multiplayer_room(
+                        base_url=self._get_http_form_values().get("base_url"),
+                        room_id=self._get_http_form_values().get("room_id"),
+                        player_name=self._get_http_form_values().get("player_name", "玩家2") or "玩家2",
+                        turn_mode=self._get_http_form_values().get("turn_mode") or None
+                    ),
                     'color': COLORS['PURPLE'],
                     'text_color': COLORS['WHITE']
                 },
                 {
-                    'text': "重连环境变量房间",
-                    'callback': self._connect_http_multiplayer_existing,
+                    'text': "重连房间",
+                    'callback': lambda: self._connect_http_multiplayer_existing(
+                        base_url=self._get_http_form_values().get("base_url"),
+                        room_id=self._get_http_form_values().get("room_id"),
+                        client_id=self._get_http_form_values().get("client_id")
+                    ),
                     'color': COLORS['BLUE'],
                     'text_color': COLORS['WHITE']
                 },
@@ -501,6 +518,13 @@ class UIClient:
                     'color': COLORS['LIGHT_GRAY'],
                     'text_color': COLORS['BLACK']
                 }
+            ],
+            inputs=[
+                {"key": "base_url", "label": "服务地址", "value": base_url},
+                {"key": "room_id", "label": "房间ID", "value": os.environ.get("GEI_WORLD_ROOM_ID", "")},
+                {"key": "client_id", "label": "客户端ID", "value": os.environ.get("GEI_WORLD_CLIENT_ID", "")},
+                {"key": "player_name", "label": "玩家名", "value": os.environ.get("GEI_WORLD_PLAYER_NAME", "玩家2")},
+                {"key": "turn_mode", "label": "回合模式", "value": os.environ.get("GEI_WORLD_TURN_MODE", "simultaneous")},
             ]
         )
     
@@ -1135,6 +1159,8 @@ class UIClient:
             return
         
         if self.ui_system.has_active_modal():
+            if self.ui_system.handle_key_press(key):
+                return
             return
         
         if not self.game_started:

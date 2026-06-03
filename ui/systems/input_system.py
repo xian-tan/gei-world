@@ -43,6 +43,7 @@ class InputSystem:
         self.on_mouse_down = None
         self.on_mouse_drag = None
         self.on_mouse_up = None
+        self.on_text_input = None
     
     def handle_events(self, events):
         """处理pygame事件"""
@@ -67,6 +68,10 @@ class InputSystem:
             
             elif event.type == pygame.KEYUP:
                 self._handle_key_up(event)
+            
+            elif event.type == pygame.TEXTINPUT:
+                if self.on_text_input:
+                    self.on_text_input(event.text)
         
         return True
     

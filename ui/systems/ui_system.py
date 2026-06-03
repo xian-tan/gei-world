@@ -60,6 +60,8 @@ class UISystem:
         self.active_slider = None
         self.active_modal = None
         self.modal_buttons = []
+        self.modal_inputs = []
+        self.active_input_index = 0
         self.modal_rect = None
         self.on_build_city = None
         
@@ -88,20 +90,26 @@ class UISystem:
         if game_state.get('game_over'):
             self._render_game_over_panel(surface, game_state)
     
-    def show_modal(self, title: str, lines: List[str] = None, actions: List[Dict[str, Any]] = None):
+    def show_modal(self, title: str, lines: List[str] = None, actions: List[Dict[str, Any]] = None,
+                   inputs: List[Dict[str, Any]] = None):
         """显示通用弹窗。actions: [{text, callback, color?, text_color?, enabled?}]。"""
         self.active_modal = {
             'title': title,
             'lines': lines or [],
-            'actions': actions or []
+            'actions': actions or [],
+            'inputs': inputs or []
         }
         self.modal_buttons = []
+        self.modal_inputs = []
+        self.active_input_index = 0
         self.active_slider = None
     
     def close_modal(self):
         """关闭通用弹窗。"""
         self.active_modal = None
         self.modal_buttons = []
+        self.modal_inputs = []
+        self.active_input_index = 0
         self.modal_rect = None
     
     def has_active_modal(self) -> bool:
@@ -118,8 +126,9 @@ class UISystem:
         
         lines = self.active_modal.get('lines', [])
         actions = self.active_modal.get('actions', [])
-        panel_width = 460
-        panel_height = max(170, 95 + len(lines) * 22 + max(1, len(actions)) * 38)
+        inputs = self.active_modal.get('inputs', [])
+        panel_width = 520 if inputs else 460
+        panel_height = max(170, 95 + len(lines) * 22 + len(inputs) * 46 + max(1, len(actions)) * 38)
         panel_height = min(panel_height, self.screen_height - 80)
         panel_x = (self.screen_width - panel_width) // 2
         panel_y = (self.screen_height - panel_height) // 2
@@ -136,6 +145,21 @@ class UISystem:
             text = self.font_manager.render_text(line, 'small', COLORS['DARK_GRAY'])
             surface.blit(text, (panel_x + 24, y_offset))
             y_offset += 22
+        
+        self.modal_inputs = []
+        for index, input_item in enumerate(inputs):
+            label = input_item.get('label', input_item.get('key', ''))
+            value = str(input_item.get('value', ''))
+            label_surface = self.font_manager.render_text(label, 'small', COLORS['BLACK'])
+            surface.blit(label_surface, (panel_x + 24, y_offset))
+            input_rect = pygame.Rect(panel_x + 160, y_offset - 4, panel_width - 190, 26)
+            border_color = COLORS['BLUE'] if index == self.active_input_index else COLORS['DARK_GRAY']
+            pygame.draw.rect(surface, COLORS['WHITE'], input_rect)
+            pygame.draw.rect(surface, border_color, input_rect, 2)
+            value_surface = self.font_manager.render_text(value[-36:], 'small', COLORS['BLACK'])
+            surface.blit(value_surface, (input_rect.x + 6, input_rect.y + 5))
+            self.modal_inputs.append({'rect': input_rect, 'index': index})
+            y_offset += 46
         
         self.modal_buttons = []
         y_offset += 8
@@ -618,6 +642,10 @@ class UISystem:
         """处理UI点击事件"""
         # 顶层弹窗优先处理，并拦截底层点击
         if self.active_modal:
+            for input_item in self.modal_inputs:
+                if input_item['rect'].collidepoint(pos):
+                    self.active_input_index = input_item['index']
+                    return True
             for button in self.modal_buttons:
                 if button.rect.collidepoint(pos):
                     if button.enabled and button.callback:
@@ -651,6 +679,43 @@ class UISystem:
                         self.add_message(button.disabled_message)
                     return True
         
+        return False
+    
+    def handle_text_input(self, text: str) -> bool:
+        """处理弹窗文本输入。"""
+        inputs = self.active_modal.get('inputs', []) if self.active_modal else []
+        if not inputs:
+            return False
+        current = inputs[self.active_input_index]
+        current['value'] = str(current.get('value', '')) + text
+        return True
+    
+    def handle_key_press(self, key: int) -> bool:
+        """处理弹窗输入框快捷键。"""
+        inputs = self.active_modal.get('inputs', []) if self.active_modal else []
+        if not inputs:
+            return False
+        if key == pygame.K_BACKSPACE:
+            current = inputs[self.active_input_index]
+            current['value'] = str(current.get('value', ''))[:-1]
+            return True
+        if key == pygame.K_TAB:
+            self.active_input_index = (self.active_input_index + 1) % len(inputs)
+            return True
+        return False
+    
+    def get_modal_input_values(self) -> Dict[str, str]:
+        """获取当前弹窗输入值。"""
+        inputs = self.active_modal.get('inputs', []) if self.active_modal else []
+        return {item.get('key', str(index)): str(item.get('value', '')) for index, item in enumerate(inputs)}
+    
+    def set_modal_input_value(self, key: str, value: str):
+        """设置当前弹窗指定输入框值，便于测试和预填。"""
+        inputs = self.active_modal.get('inputs', []) if self.active_modal else []
+        for item in inputs:
+            if item.get('key') == key:
+                item['value'] = value
+                return True
         return False
     
     def show_city_panel_for(self, city: City):

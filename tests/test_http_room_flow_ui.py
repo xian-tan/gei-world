@@ -18,6 +18,27 @@ def _start_http_server():
     return http_server, f"http://{host}:{port}"
 
 
+def test_http_modal_form_inputs_drive_room_flow():
+    http_server, base_url = _start_http_server()
+    try:
+        pygame.init()
+        client = UIClient()
+        client._show_http_multiplayer_modal()
+        assert client.ui_system.has_active_modal()
+        assert client.ui_system.set_modal_input_value("base_url", base_url)
+        assert client.ui_system.set_modal_input_value("turn_mode", "simultaneous")
+        created = client._create_http_room(
+            base_url=client._get_http_form_values()["base_url"],
+            turn_mode=client._get_http_form_values()["turn_mode"],
+            host_name="玩家1"
+        )
+        assert created["success"]
+        assert created["room"]["room_id"]
+    finally:
+        http_server.shutdown()
+        http_server.server_close()
+
+
 def test_http_ui_create_join_and_reconnect_existing_room():
     http_server, base_url = _start_http_server()
     try:
