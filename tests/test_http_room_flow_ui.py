@@ -33,7 +33,15 @@ def test_http_modal_form_inputs_drive_room_flow():
             host_name="玩家1"
         )
         assert created["success"]
-        assert created["room"]["room_id"]
+        room_id = created["room"]["room_id"]
+        client_id = created["client_id"]
+        assert room_id
+        assert client.last_http_room_info["room_id"] == room_id
+        assert client.last_http_room_info["client_id"] == client_id
+        assert client.ui_system.get_modal_input_values()["room_id"] == room_id
+        assert client.ui_system.get_modal_input_values()["client_id"] == client_id
+        assert any(room_id in line for line in client.ui_system.active_modal["lines"])
+        assert any(client_id in line for line in client.ui_system.active_modal["lines"])
     finally:
         http_server.shutdown()
         http_server.server_close()
@@ -60,6 +68,8 @@ def test_http_ui_create_join_and_reconnect_existing_room():
         assert guest_client.game_started
         assert isinstance(guest_client.session, HTTPNetworkSession)
         assert guest_client._get_controlled_player().id == "player_1"
+        assert guest_client.last_http_room_info["room_id"] == room_id
+        assert guest_client.last_http_room_info["client_id"]
 
         assert host_client._connect_http_multiplayer_existing(
             base_url=base_url,
@@ -69,6 +79,8 @@ def test_http_ui_create_join_and_reconnect_existing_room():
         assert host_client.game_started
         assert isinstance(host_client.session, HTTPNetworkSession)
         assert host_client._get_controlled_player().id == "player_0"
+        assert host_client.last_http_room_info["room_id"] == room_id
+        assert host_client.last_http_room_info["client_id"] == host_client_id
         assert host_client._get_game_state()["multiplayer_status"]["room_id"] == room_id
     finally:
         http_server.shutdown()

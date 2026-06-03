@@ -572,9 +572,14 @@ def test_http_multiplayer_ui_connects_and_switches_clients():
         assert len(client.multiplayer_sessions) == 2
         assert client._get_controlled_player().id == "player_0"
         assert client.game_engine.map_tiles
+        assert client._get_controlled_player().units
         status = client._get_game_state()['multiplayer_status']
         assert status['room_id'] == client.multiplayer_room_id
         assert status['visible_tile_count'] > 0
+        client._handle_end_turn()
+        assert client.ui_system.has_active_modal()
+        assert client.render_system.attention_tiles
+        assert "仍有单位可移动" in client.ui_system.active_modal['title']
         client._handle_end_turn(force=True)
         assert not client._can_controlled_player_act()
         assert client._switch_multiplayer_client()
@@ -600,6 +605,38 @@ def test_local_multiplayer_ui_can_leave_room():
     assert client.multiplayer_room_id is None
     assert not client.multiplayer_sessions
     assert any("已离开多人房间" in message for message in client.ui_system.messages)
+
+
+def test_ui_can_return_to_main_menu_from_game():
+    """测试游戏中可通过确认弹窗返回主菜单。"""
+    from ui.client_controller import UIClient
+    from src.game_session import LocalGameSession
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "AI玩家"], 123)
+    client._show_return_to_menu_modal()
+    assert client.ui_system.has_active_modal()
+    assert client._confirm_return_to_main_menu()
+    assert not client.game_started
+    assert isinstance(client.session, LocalGameSession)
+    assert client.local_player_id is None
+    assert any("已返回主菜单" in message for message in client.ui_system.messages)
+
+
+def test_multiplayer_return_to_main_menu_leaves_room():
+    """测试多人游戏返回主菜单时会先离开房间。"""
+    from ui.client_controller import UIClient
+    
+    pygame.init()
+    client = UIClient()
+    assert client._start_local_multiplayer("simultaneous", map_seed=123)
+    server = client.multiplayer_server
+    room_id = client.multiplayer_room_id
+    assert client._confirm_return_to_main_menu()
+    assert not client.game_started
+    assert client.multiplayer_room_id is None
+    assert server.get_room_state(room_id)["closed"]
 
 
 def test_local_multiplayer_ui_reports_opponent_offline_and_room_closed():

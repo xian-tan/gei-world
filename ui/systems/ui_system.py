@@ -64,6 +64,7 @@ class UISystem:
         self.active_input_index = 0
         self.modal_rect = None
         self.on_build_city = None
+        self.on_return_to_menu = None
         
     def add_message(self, message: str):
         """添加界面消息。"""
@@ -632,11 +633,20 @@ class UISystem:
         )
         self._draw_button(surface, load_button)
         
-        buttons = [end_turn_button, save_button, load_button]
+        menu_button = Button(
+            rect=pygame.Rect(300, 50, 90, 30),
+            text="主菜单",
+            callback=self._return_to_menu,
+            color=COLORS['LIGHT_GRAY'],
+            text_color=COLORS['BLACK']
+        )
+        self._draw_button(surface, menu_button)
+        
+        buttons = [end_turn_button, save_button, load_button, menu_button]
         selected_unit = game_state.get('selected_unit')
         if selected_unit and selected_unit.unit_type == UnitType.SETTLER:
             build_city_button = Button(
-                rect=pygame.Rect(300, 50, 90, 30),
+                rect=pygame.Rect(400, 50, 90, 30),
                 text="建城(B)",
                 callback=self._build_city,
                 enabled=can_act,
@@ -767,9 +777,15 @@ class UISystem:
         if hasattr(self, 'on_load_game'):
             self.on_load_game()
     
+    def _return_to_menu(self):
+        """返回主菜单"""
+        if hasattr(self, 'on_return_to_menu') and self.on_return_to_menu:
+            self.on_return_to_menu()
+    
     def set_callbacks(self, on_build_unit: Callable = None, 
                      on_end_turn: Callable = None, on_save_game: Callable = None,
-                     on_load_game: Callable = None, on_build_city: Callable = None):
+                     on_load_game: Callable = None, on_build_city: Callable = None,
+                     on_return_to_menu: Callable = None):
         """设置回调函数"""
         if on_build_unit:
             self.on_build_unit = on_build_unit
@@ -781,3 +797,5 @@ class UISystem:
             self.on_load_game = on_load_game
         if on_build_city:
             self.on_build_city = on_build_city
+        if on_return_to_menu:
+            self.on_return_to_menu = on_return_to_menu

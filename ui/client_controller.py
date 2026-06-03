@@ -58,6 +58,7 @@ class UIClient:
         self.multiplayer_sessions = {}
         self.active_multiplayer_client_id = None
         self.notified_multiplayer_event_sequences = set()
+        self.last_http_room_info = {}
         
         # 设置输入回调
         self._setup_input_callbacks()
@@ -104,7 +105,8 @@ class UIClient:
             on_end_turn=self._handle_end_turn,
             on_save_game=self._handle_save_game,
             on_load_game=self._handle_load_game,
-            on_build_city=self._handle_build_city
+            on_build_city=self._handle_build_city,
+            on_return_to_menu=self._show_return_to_menu_modal
         )
     
     def _clear_ui_selection_state(self):
@@ -278,6 +280,7 @@ class UIClient:
         except Exception as error:
             self._notify(f"HTTP 多人连接失败：{error}")
             return False
+        self._remember_http_room_info(base_url, room_id, host_client_id)
         self.multiplayer_server = None
         self.multiplayer_room_id = room_id
         self.multiplayer_sessions = {
@@ -308,9 +311,29 @@ class UIClient:
             return None
         room_id = response["room"]["room_id"]
         client_id = response["client_id"]
+        self._remember_http_room_info(base_url, room_id, client_id)
+        if self.ui_system.has_active_modal():
+            self.ui_system.active_modal['lines'] = [
+                "HTTP 等待房已创建，请记录以下信息。",
+                f"房间ID: {room_id}",
+                f"客户端ID: {client_id}",
+                "另一客户端加入后，房主可用这些信息重连。"
+            ]
         self._notify(f"HTTP 房间已创建：{room_id}，客户端：{client_id}")
         self._notify("另一客户端可用房间号加入；房主可稍后重连。")
         return response
+    
+    def _remember_http_room_info(self, base_url: str, room_id: str, client_id: str):
+        """记录并回填最近 HTTP 房间信息。"""
+        self.last_http_room_info = {
+            "base_url": base_url,
+            "room_id": room_id,
+            "client_id": client_id,
+        }
+        if self.ui_system.has_active_modal():
+            self.ui_system.set_modal_input_value("base_url", base_url)
+            self.ui_system.set_modal_input_value("room_id", room_id)
+            self.ui_system.set_modal_input_value("client_id", client_id)
     
     def _join_http_multiplayer_room(self, base_url: str = None, room_id: str = None,
                                     player_name: str = "玩家2", turn_mode: str = None,
@@ -334,6 +357,7 @@ class UIClient:
             return False
         session = HTTPNetworkSession(http_client, room_id, client_id)
         session.get_player_view()
+        self._remember_http_room_info(base_url, room_id, client_id)
         self.multiplayer_server = None
         self.multiplayer_room_id = room_id
         self.multiplayer_sessions = {client_id: session}
@@ -342,7 +366,7 @@ class UIClient:
         self._activate_multiplayer_client(client_id, notify=False)
         self._center_camera_on_map()
         self.ui_system.close_modal()
-        self._notify(f"已加入 HTTP 房间：{room_id}")
+        self._notify(f"已加入 HTTP 房间：{room_id}，客户端：{client_id}")
         return True
     
     def _connect_http_multiplayer_existing(self, base_url: str = None, room_id: str = None,
@@ -360,6 +384,7 @@ class UIClient:
         if not view_response.get("success"):
             self._notify(f"连接 HTTP 房间失败：{view_response.get('message', '未知错误')}")
             return False
+        self._remember_http_room_info(base_url, room_id, client_id)
         self.multiplayer_server = None
         self.multiplayer_room_id = room_id
         self.multiplayer_sessions = {client_id: session}
@@ -368,7 +393,7 @@ class UIClient:
         self._activate_multiplayer_client(client_id, notify=False)
         self._center_camera_on_map()
         self.ui_system.close_modal()
-        self._notify(f"已连接 HTTP 房间：{room_id}")
+        self._notify(f"已连接 HTTP 房间：{room_id}，客户端：{client_id}")
         return True
     
     def _activate_multiplayer_client(self, client_id: str, notify: bool = True) -> bool:
@@ -463,16 +488,26 @@ class UIClient:
     
     def _get_http_form_values(self) -> Dict[str, str]:
         values = self.ui_system.get_modal_input_values()
-        values.setdefault("base_url", self._get_http_base_url())
+        values.setdefault("base_url", self.last_http_room_info.get("base_url") or self._get_http_base_url())
+        values.setdefault("room_id", self.last_http_room_info.get("room_id", ""))
+        values.setdefault("client_id", self.last_http_room_info.get("client_id", ""))
         values.setdefault("turn_mode", os.environ.get("GEI_WORLD_TURN_MODE", "simultaneous"))
         return values
     
     def _show_http_multiplayer_modal(self):
         """显示 HTTP 多人模式选择。"""
-        base_url = self._get_http_base_url()
+        base_url = self.last_http_room_info.get("base_url") or self._get_http_base_url()
+        room_id = os.environ.get("GEI_WORLD_ROOM_ID") or self.last_http_room_info.get("room_id", "")
+        client_id = os.environ.get("GEI_WORLD_CLIENT_ID") or self.last_http_room_info.get("client_id", "")
+        lines = ["填写服务/房间信息；TAB 切换输入框。"]
+        if room_id or client_id:
+            lines.extend([
+                f"最近房间ID: {room_id or '无'}",
+                f"最近客户端ID: {client_id or '无'}"
+            ])
         self.ui_system.show_modal(
             "HTTP 多人原型",
-            ["填写服务/房间信息；TAB 切换输入框。"],
+            lines,
             [
                 {
                     'text': "创建调试房",
@@ -523,8 +558,8 @@ class UIClient:
             ],
             inputs=[
                 {"key": "base_url", "label": "服务地址", "value": base_url},
-                {"key": "room_id", "label": "房间ID", "value": os.environ.get("GEI_WORLD_ROOM_ID", "")},
-                {"key": "client_id", "label": "客户端ID", "value": os.environ.get("GEI_WORLD_CLIENT_ID", "")},
+                {"key": "room_id", "label": "房间ID", "value": room_id},
+                {"key": "client_id", "label": "客户端ID", "value": client_id},
                 {"key": "player_name", "label": "玩家名", "value": os.environ.get("GEI_WORLD_PLAYER_NAME", "玩家2")},
                 {"key": "turn_mode", "label": "回合模式", "value": os.environ.get("GEI_WORLD_TURN_MODE", "simultaneous")},
             ]
@@ -770,6 +805,17 @@ class UIClient:
             message = self.font_manager.render_text(self.ui_system.messages[-1], 'small', COLORS['LIGHT_GRAY'])
             message_rect = message.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 75))
             self.screen.blit(message, message_rect)
+        if self.last_http_room_info:
+            room_id = self.last_http_room_info.get("room_id", "")
+            client_id = self.last_http_room_info.get("client_id", "")
+            lines = [
+                f"最近HTTP房间: {room_id}",
+                f"最近客户端ID: {client_id}",
+            ]
+            for index, line in enumerate(lines):
+                info = self.font_manager.render_text(line, 'small', COLORS['LIGHT_GRAY'])
+                info_rect = info.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 105 + index * 22))
+                self.screen.blit(info, info_rect)
     
     def _update_hover_path_preview(self, visible_tiles: Set[HexCoord]):
         """根据鼠标悬停位置更新移动路径预览。"""
@@ -1113,25 +1159,76 @@ class UIClient:
             or self.move_mode_active
         )
     
-    def _show_exit_confirmation(self):
-        """显示退出确认弹窗。"""
+    def _show_return_to_menu_modal(self):
+        """显示返回主菜单确认弹窗。"""
+        lines = ["确定要返回主菜单吗？", "未保存的进度会丢失。"]
+        if self.multiplayer_room_id:
+            lines.append("多人房间会先执行离开；房主退出会关闭房间。")
         self.ui_system.show_modal(
-            "确认退出",
-            ["确定要退出游戏吗？", "未保存的进度会丢失。"],
+            "返回主菜单",
+            lines,
             [
                 {
-                    'text': "取消",
+                    'text': "继续游戏",
                     'callback': self.ui_system.close_modal,
                     'color': COLORS['LIGHT_GRAY'],
                     'text_color': COLORS['BLACK']
                 },
                 {
-                    'text': "退出游戏",
-                    'callback': self._confirm_exit_game,
-                    'color': COLORS['RED'],
-                    'text_color': COLORS['WHITE']
+                    'text': "返回主菜单",
+                    'callback': self._confirm_return_to_main_menu,
+                    'color': COLORS['ORANGE'],
+                    'text_color': COLORS['BLACK']
                 }
             ]
+        )
+    
+    def _confirm_return_to_main_menu(self):
+        """确认返回主菜单。"""
+        if self.multiplayer_room_id:
+            if hasattr(self.session, 'leave_room'):
+                response = self.session.leave_room()
+                if not response.get("success"):
+                    self._notify(f"离开房间失败，已返回主菜单：{response.get('message', '未知错误')}")
+            elif self.multiplayer_server and self.active_multiplayer_client_id:
+                self.multiplayer_server.leave_room(self.multiplayer_room_id, self.active_multiplayer_client_id)
+        self._clear_multiplayer_context()
+        self.session = LocalGameSession()
+        self.ai_manager = AIManager()
+        self.game_started = False
+        self.local_player_id = None
+        self._clear_ui_selection_state()
+        self.ui_system.close_modal()
+        self._notify("已返回主菜单。")
+        return True
+    
+    def _show_exit_confirmation(self):
+        """显示退出确认弹窗。"""
+        actions = [
+            {
+                'text': "取消",
+                'callback': self.ui_system.close_modal,
+                'color': COLORS['LIGHT_GRAY'],
+                'text_color': COLORS['BLACK']
+            }
+        ]
+        if self.game_started:
+            actions.append({
+                'text': "返回主菜单",
+                'callback': self._confirm_return_to_main_menu,
+                'color': COLORS['ORANGE'],
+                'text_color': COLORS['BLACK']
+            })
+        actions.append({
+            'text': "退出游戏",
+            'callback': self._confirm_exit_game,
+            'color': COLORS['RED'],
+            'text_color': COLORS['WHITE']
+        })
+        self.ui_system.show_modal(
+            "确认退出",
+            ["确定要退出游戏吗？", "未保存的进度会丢失。"],
+            actions
         )
     
     def _confirm_exit_game(self):

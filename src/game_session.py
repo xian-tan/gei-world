@@ -210,6 +210,10 @@ class HTTPNetworkSession:
         view = self._poll_view()
         if not view:
             return None
+        player_id = view.get("player_id")
+        mirror_player = self.engine.player_system.get_player_by_id(player_id) if player_id else None
+        if mirror_player:
+            return mirror_player
         player_data = next((player for player in view.get("players", []) if player.get("is_self")), None)
         if not player_data:
             return None
