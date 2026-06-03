@@ -19,7 +19,7 @@ from .config import PLAYER_CONFIG
 class GameEngine:
     """游戏引擎 - 协调所有系统"""
     
-    def __init__(self):
+    def __init__(self, turn_mode: str = TurnSystem.MODE_SEQUENTIAL):
         # 初始化所有系统
         self.map_system = MapSystem()
         self.player_system = PlayerSystem()
@@ -27,7 +27,7 @@ class GameEngine:
         self.city_system = CitySystem()
         self.combat_system = CombatSystem()
         self.vision_system = VisionSystem()
-        self.turn_system = TurnSystem()
+        self.turn_system = TurnSystem(turn_mode)
         
         # 游戏状态
         self.game_started = False
@@ -37,7 +37,7 @@ class GameEngine:
         self.ai_player_configs = {}
         self._last_failure_reason = ""
     
-    def initialize_game(self, player_names: List[str], map_seed: int = None) -> bool:
+    def initialize_game(self, player_names: List[str], map_seed: int = None, turn_mode: str = None) -> bool:
         """初始化游戏"""
         if len(player_names) < 2 or len(player_names) > PLAYER_CONFIG["max_players"]:
             return False
@@ -63,7 +63,7 @@ class GameEngine:
             spawn_tile.units.append(settler)
             player.units.append(settler)
           # 初始化回合系统
-        self.turn_system.initialize(players)
+        self.turn_system.initialize(players, turn_mode)
         
         # 初始化视野系统的玩家列表
         self.vision_system.set_players(players)
@@ -119,10 +119,9 @@ class GameEngine:
         if self.game_over:
             return self._fail("游戏已结束，无法继续行动")
         
-        # 验证是否是当前玩家
-        current_player = self.turn_system.get_current_player()
-        if not current_player or current_player.id != action.player_id:
-            return self._fail("还没轮到该玩家行动")
+        # 验证玩家在当前回合模式下是否可行动
+        if not self.turn_system.can_player_act(action.player_id):
+            return self._fail(self.turn_system.get_action_denial_reason(action.player_id))
         
         # 根据行动类型执行
         if action.action_type == ActionType.MOVE_UNIT:
@@ -148,18 +147,17 @@ class GameEngine:
         if not target:
             return self._fail("移动失败：未指定目标位置")
         
-        current_player = self.turn_system.get_current_player()
+        acting_player = self.player_system.get_player_by_id(action.player_id)
         units = []
         for moving_unit_id in unit_ids:
             moving_unit = self.unit_system.get_unit_by_id(moving_unit_id)
             if not moving_unit:
                 return self._fail("移动失败：未找到该单位")
-            if moving_unit.owner != current_player:
+            if moving_unit.owner != acting_player:
                 return self._fail("移动失败：只能移动自己的单位")
             units.append(moving_unit)
         
         unit = units[0]
-        acting_player = current_player
         try:
             target_coord = HexCoord(target[0], target[1])
         except (TypeError, IndexError):
@@ -232,10 +230,10 @@ class GameEngine:
             return self._fail("建城失败：未指定移民")
         
         unit = self.unit_system.get_unit_by_id(unit_id)
-        current_player = self.turn_system.get_current_player()
+        acting_player = self.player_system.get_player_by_id(action.player_id)
         if not unit:
             return self._fail("建城失败：未找到该单位")
-        if unit.owner != current_player:
+        if unit.owner != acting_player:
             return self._fail("建城失败：只能使用自己的移民建城")
         if unit.unit_type != UnitType.SETTLER:
             return self._fail("建城失败：只有移民可以建城")
@@ -271,10 +269,10 @@ class GameEngine:
             return self._fail("生产失败：未知单位类型")
         
         city = self.city_system.get_city_by_id(city_id)
-        current_player = self.turn_system.get_current_player()
+        acting_player = self.player_system.get_player_by_id(action.player_id)
         if not city:
             return self._fail("生产失败：未找到该城市")
-        if city.owner != current_player:
+        if city.owner != acting_player:
             return self._fail("生产失败：只能在自己的城市生产")
         
         build_failure = self.city_system.get_build_unit_failure_reason(city, unit_type, quantity)
@@ -290,12 +288,16 @@ class GameEngine:
     
     def _execute_end_turn(self, action: GameAction) -> bool:
         """执行结束回合行动"""
-        self.turn_system.end_turn(
+        transition = self.turn_system.end_turn(
             self.player_system, 
             self.unit_system, 
             self.vision_system, 
-            self.map_tiles
+            self.map_tiles,
+            action.player_id
         )
+        if not transition.get("success"):
+            return self._fail(str(transition.get("reason", "结束回合失败")))
+        action.params["_turn_transition"] = transition
         
         # 检查游戏是否结束
         self._check_game_over()
@@ -415,12 +417,24 @@ class GameEngine:
                     ))
         
         if success and action.action_type == ActionType.END_TURN:
-            current_player = self.turn_system.get_current_player()
+            transition = action.params.get("_turn_transition", {})
             events.append(ActionEvent(
                 event_type="turn_ended",
                 message="回合结束",
-                data={"next_player_id": current_player.id if current_player else None}
+                data={
+                    "mode": transition.get("mode", self.turn_system.mode),
+                    "ended_player_id": transition.get("ended_player_id", action.player_id),
+                    "next_player_id": transition.get("next_player_id"),
+                    "turn_advanced": transition.get("turn_advanced", False),
+                    "ended_player_ids": transition.get("ended_player_ids", [])
+                }
             ))
+            if transition.get("turn_advanced"):
+                events.append(ActionEvent(
+                    event_type="turn_advanced",
+                    message=f"进入第 {self.turn_system.current_turn} 回合",
+                    data={"turn": self.turn_system.current_turn}
+                ))
         
         destroyed_unit_ids = before["unit_ids"] - current_unit_ids
         consumed_unit_id = action.params.get("unit_id") if action.action_type == ActionType.BUILD_CITY else None

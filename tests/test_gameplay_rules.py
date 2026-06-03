@@ -628,6 +628,97 @@ class TestGameplayRules(unittest.TestCase):
         self.assertEqual(loaded.ai_player_configs, engine.ai_player_configs)
         self.assertTrue(player1.explored_tiles.issubset(loaded_player1.explored_tiles))
 
+    def test_sequential_turn_mode_preserves_existing_turn_order(self):
+        engine = GameEngine()
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+        player1, player2 = engine.player_system.players
+
+        self.assertEqual(engine.turn_system.mode, "sequential")
+        self.assertTrue(engine.turn_system.can_player_act(player1.id))
+        self.assertFalse(engine.turn_system.can_player_act(player2.id))
+        self.assertTrue(engine.execute_action(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.END_TURN,
+            params={}
+        )))
+        self.assertTrue(engine.turn_system.can_player_act(player2.id))
+
+    def test_simultaneous_turn_mode_allows_multiple_players_before_ending(self):
+        engine = GameEngine(turn_mode="simultaneous")
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+        player1, player2 = engine.player_system.players
+
+        self.assertEqual(engine.turn_system.mode, "simultaneous")
+        self.assertTrue(engine.turn_system.can_player_act(player1.id))
+        self.assertTrue(engine.turn_system.can_player_act(player2.id))
+
+        for player in [player1, player2]:
+            unit = player.units[0]
+            target = next(coord for coord in unit.position.neighbors() if coord in engine.map_tiles)
+            engine.map_tiles[target].terrain_type = TerrainType.LAND
+            self.assertTrue(engine.execute_action(GameAction(
+                player_id=player.id,
+                action_type=ActionType.MOVE_UNIT,
+                params={"unit_id": unit.id, "target": [target.q, target.r]}
+            )))
+
+    def test_simultaneous_turn_mode_locks_ended_players_and_advances_after_all_end(self):
+        engine = GameEngine(turn_mode="simultaneous")
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+        player1, player2 = engine.player_system.players
+        player1.units[0].movement_points = 0
+
+        first_result = engine.execute_action_with_result(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.END_TURN,
+            params={}
+        ))
+        self.assertTrue(first_result.success)
+        self.assertEqual(engine.turn_system.current_turn, 1)
+        self.assertIn(player1.id, engine.turn_system.ended_player_ids)
+        self.assertFalse(engine.turn_system.can_player_act(player1.id))
+        self.assertTrue(engine.turn_system.can_player_act(player2.id))
+
+        locked_result = engine.execute_action_with_result(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.END_TURN,
+            params={}
+        ))
+        self.assertFalse(locked_result.success)
+        self.assertIn("已结束", locked_result.message)
+
+        second_result = engine.execute_action_with_result(GameAction(
+            player_id=player2.id,
+            action_type=ActionType.END_TURN,
+            params={}
+        ))
+        self.assertTrue(second_result.success)
+        self.assertEqual(engine.turn_system.current_turn, 2)
+        self.assertEqual(engine.turn_system.ended_player_ids, set())
+        self.assertEqual(player1.units[0].movement_points, player1.units[0].max_movement_points)
+        self.assertIn("turn_advanced", [event.event_type for event in second_result.events])
+
+    def test_save_load_preserves_simultaneous_turn_mode_state(self):
+        engine = GameEngine(turn_mode="simultaneous")
+        self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
+        player1, player2 = engine.player_system.players
+        self.assertTrue(engine.execute_action(GameAction(
+            player_id=player1.id,
+            action_type=ActionType.END_TURN,
+            params={}
+        )))
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            save_system = GameSaveSystem(tmp_dir)
+            self.assertTrue(save_system.save_game(engine, "simultaneous"))
+            loaded = save_system.load_game("simultaneous")
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.turn_system.mode, "simultaneous")
+        self.assertEqual(loaded.turn_system.ended_player_ids, {player1.id})
+        self.assertFalse(loaded.turn_system.can_player_act(player1.id))
+        self.assertTrue(loaded.turn_system.can_player_act(player2.id))
+
     def test_action_result_reports_failure_reasons(self):
         engine = GameEngine()
         self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))

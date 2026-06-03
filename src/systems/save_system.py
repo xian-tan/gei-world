@@ -163,6 +163,8 @@ class GameSaveSystem:
             "players": players_data,
             "turn": engine.turn_system.current_turn,
             "current_player_index": engine.turn_system.current_player_index,
+            "turn_mode": getattr(engine.turn_system, "mode", "sequential"),
+            "ended_player_ids": sorted(getattr(engine.turn_system, "ended_player_ids", set())),
             "game_started": engine.game_started,
             "game_over": engine.game_over,
             "winner_id": engine.winner.id if engine.winner else None,
@@ -294,6 +296,8 @@ class GameSaveSystem:
             engine.turn_system.current_turn = game_data.get("turn", 1)
             engine.turn_system.turn_number = game_data.get("turn", 1)
             engine.turn_system.current_player_index = game_data.get("current_player_index", 0)
+            engine.turn_system.mode = engine.turn_system._normalize_mode(game_data.get("turn_mode", "sequential"))
+            engine.turn_system.ended_player_ids = set(game_data.get("ended_player_ids", []))
             engine.game_started = game_data.get("game_started", True)
             engine.game_over = game_data.get("game_over", False)
             winner_id = game_data.get("winner_id")
