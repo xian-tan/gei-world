@@ -47,6 +47,21 @@ def test_http_network_session_polls_view_and_turn_status():
         http_server.server_close()
 
 
+def test_http_network_session_leave_and_reconnect():
+    http_server, host_session, guest_session = _start_http_sessions()
+    try:
+        left = host_session.leave_room()
+        assert left["success"]
+        assert not left["room"]["seats"][0]["connected"]
+        reconnected = host_session.reconnect_room()
+        assert reconnected["success"]
+        assert reconnected["room"]["seats"][0]["connected"]
+        assert host_session.get_player_view()["success"]
+    finally:
+        http_server.shutdown()
+        http_server.server_close()
+
+
 def test_http_network_session_submits_actions_and_updates_cache():
     http_server, host_session, guest_session = _start_http_sessions()
     try:

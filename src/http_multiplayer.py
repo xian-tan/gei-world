@@ -68,6 +68,10 @@ class MultiplayerHTTPRequestHandler(BaseHTTPRequestHandler):
                 return {"success": True, "room": app.get_room_state(room_id)}
             if method == "POST" and len(path_parts) == 3 and path_parts[2] == "join":
                 return app.join_room(room_id, str(payload.get("player_name", "玩家")))
+            if method == "POST" and len(path_parts) == 3 and path_parts[2] == "leave":
+                return app.leave_room(room_id, str(payload.get("client_id", "")))
+            if method == "POST" and len(path_parts) == 3 and path_parts[2] == "reconnect":
+                return app.reconnect_room(room_id, str(payload.get("client_id", "")))
             if method == "POST" and len(path_parts) == 3 and path_parts[2] == "start":
                 return app.start_room(
                     room_id,
@@ -125,6 +129,12 @@ class HTTPMultiplayerClient:
     def join_room(self, room_id: str, player_name: str) -> Dict[str, object]:
         return self._request("POST", f"/rooms/{room_id}/join", {"player_name": player_name})
 
+    def leave_room(self, room_id: str, client_id: str) -> Dict[str, object]:
+        return self._request("POST", f"/rooms/{room_id}/leave", {"client_id": client_id})
+
+    def reconnect_room(self, room_id: str, client_id: str) -> Dict[str, object]:
+        return self._request("POST", f"/rooms/{room_id}/reconnect", {"client_id": client_id})
+
     def start_room(self, room_id: str, map_seed: int = None, turn_mode: str = None) -> Dict[str, object]:
         return self._request("POST", f"/rooms/{room_id}/start", {
             "map_seed": map_seed,
@@ -162,6 +172,8 @@ class HTTPMultiplayerClient:
         except error.HTTPError as exc:
             body = exc.read().decode("utf-8")
             return json.loads(body) if body else {"success": False, "message": str(exc)}
+        except (error.URLError, TimeoutError, OSError) as exc:
+            return {"success": False, "message": f"连接失败: {exc}"}
 
 
 def run_http_server(host: str = "127.0.0.1", port: int = 8000):

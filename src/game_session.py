@@ -198,6 +198,8 @@ class HTTPNetworkSession:
         response = self.http_client.submit_action(self.room_id, self.client_id, action)
         if response.get("view"):
             self._set_view_cache(response["view"])
+        if "result" not in response:
+            return ActionResult(False, response.get("message", "提交行动失败"))
         return deserialize_action_result(response["result"])
 
     def get_turn_status(self) -> Dict[str, object]:
@@ -236,6 +238,17 @@ class HTTPNetworkSession:
         response = self.http_client.get_player_view(self.room_id, self.client_id)
         if response.get("success"):
             self._set_view_cache(response.get("view"))
+        return response
+
+    def leave_room(self) -> Dict[str, object]:
+        """离开当前 HTTP 房间。"""
+        return self.http_client.leave_room(self.room_id, self.client_id)
+
+    def reconnect_room(self) -> Dict[str, object]:
+        """重新连接当前 HTTP 房间。"""
+        response = self.http_client.reconnect_room(self.room_id, self.client_id)
+        if response.get("success"):
+            self.get_player_view()
         return response
 
     def _set_view_cache(self, view: Optional[Dict[str, object]]):

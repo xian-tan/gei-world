@@ -82,6 +82,20 @@ def test_multiplayer_server_simultaneous_turn_flow():
     assert any(event["event_type"] == "turn_advanced" for event in second["result"]["events"])
 
 
+def test_multiplayer_server_leave_and_reconnect_room():
+    server, room_id, client1, client2 = _started_two_player_room()
+
+    left = server.leave_room(room_id, client1)
+    assert left["success"]
+    assert not left["room"]["seats"][0]["connected"]
+    assert left["room"]["recent_events"][-1]["event_type"] == "player_left"
+
+    reconnected = server.reconnect_room(room_id, client1)
+    assert reconnected["success"]
+    assert reconnected["room"]["seats"][0]["connected"]
+    assert reconnected["room"]["recent_events"][-1]["event_type"] == "player_reconnected"
+
+
 def test_network_game_session_uses_server_authority():
     server = MultiplayerServer()
     created = server.create_room("玩家1", max_players=2, map_seed=123)

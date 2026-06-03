@@ -182,6 +182,22 @@ class MultiplayerServer:
         """获取客户端绑定的玩家 ID。"""
         return self._require_seat(self._get_room(room_id), client_id).player_id
 
+    def leave_room(self, room_id: str, client_id: str) -> Dict[str, object]:
+        """标记客户端离开房间。"""
+        room = self._get_room(room_id)
+        seat = self._require_seat(room, client_id)
+        seat.connected = False
+        self._record_system_event(room, seat, f"{seat.player_name} 已离开房间", "player_left")
+        return {"success": True, "room": serialize_room_state(room)}
+
+    def reconnect_room(self, room_id: str, client_id: str) -> Dict[str, object]:
+        """标记客户端重新连接房间。"""
+        room = self._get_room(room_id)
+        seat = self._require_seat(room, client_id)
+        seat.connected = True
+        self._record_system_event(room, seat, f"{seat.player_name} 已重新连接", "player_reconnected")
+        return {"success": True, "room": serialize_room_state(room)}
+
     def _record_action_events(self, room: MultiplayerRoom, seat: PlayerSeat,
                               result: ActionResult):
         """记录房间事件，供客户端轮询展示。"""
@@ -198,6 +214,19 @@ class MultiplayerServer:
                 "data": event.get("data", {})
             })
             room.next_event_sequence += 1
+        room.event_log = room.event_log[-100:]
+
+    def _record_system_event(self, room: MultiplayerRoom, seat: PlayerSeat,
+                             message: str, event_type: str):
+        room.event_log.append({
+            "sequence": room.next_event_sequence,
+            "player_id": seat.player_id,
+            "player_name": seat.player_name,
+            "event_type": event_type,
+            "message": message,
+            "data": {}
+        })
+        room.next_event_sequence += 1
         room.event_log = room.event_log[-100:]
 
     def _action_response(self, room: MultiplayerRoom, seat: PlayerSeat,

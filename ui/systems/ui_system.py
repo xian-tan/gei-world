@@ -260,7 +260,7 @@ class UISystem:
             message = event.get('message') or event.get('event_type')
             if message:
                 lines.append(f"事件: {message[:14]}")
-        lines.append("TAB: 切换玩家视角")
+        lines.append("TAB切换 / Q离开")
         for line in lines[:10]:
             text = self.font_manager.render_text(line, 'small', COLORS['BLACK'])
             surface.blit(text, (panel_x + 10, y_offset))

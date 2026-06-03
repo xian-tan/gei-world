@@ -87,6 +87,29 @@ def test_http_multiplayer_action_authority_and_turn_advance():
         http_server.server_close()
 
 
+def test_http_multiplayer_leave_and_reconnect_room():
+    http_server, client = _start_test_http_server()
+    try:
+        created = client.create_room("玩家1", turn_mode=TurnSystem.MODE_SIMULTANEOUS, map_seed=123)
+        room_id = created["room"]["room_id"]
+        host_client_id = created["client_id"]
+        client.join_room(room_id, "玩家2")
+        client.start_room(room_id, turn_mode=TurnSystem.MODE_SIMULTANEOUS)
+
+        left = client.leave_room(room_id, host_client_id)
+        assert left["success"]
+        assert not left["room"]["seats"][0]["connected"]
+        assert left["room"]["recent_events"][-1]["event_type"] == "player_left"
+
+        reconnected = client.reconnect_room(room_id, host_client_id)
+        assert reconnected["success"]
+        assert reconnected["room"]["seats"][0]["connected"]
+        assert reconnected["room"]["recent_events"][-1]["event_type"] == "player_reconnected"
+    finally:
+        http_server.shutdown()
+        http_server.server_close()
+
+
 def test_http_multiplayer_returns_errors_as_json():
     http_server, client = _start_test_http_server()
     try:
@@ -96,3 +119,10 @@ def test_http_multiplayer_returns_errors_as_json():
     finally:
         http_server.shutdown()
         http_server.server_close()
+
+
+def test_http_multiplayer_client_reports_service_unavailable():
+    client = HTTPMultiplayerClient("http://127.0.0.1:9", timeout=0.1)
+    response = client.get_room_state("room_1")
+    assert not response["success"]
+    assert "连接失败" in response["message"]

@@ -586,6 +586,22 @@ def test_http_multiplayer_ui_connects_and_switches_clients():
         http_server.server_close()
 
 
+def test_local_multiplayer_ui_can_leave_room():
+    """测试 UI 可离开多人房间并回到开始界面。"""
+    from ui.client_controller import UIClient
+    
+    pygame.init()
+    client = UIClient()
+    assert client._start_local_multiplayer("simultaneous", map_seed=123)
+    client._handle_key_press(pygame.K_q, True)
+    assert client.ui_system.has_active_modal()
+    assert client._leave_multiplayer_room()
+    assert not client.game_started
+    assert client.multiplayer_room_id is None
+    assert not client.multiplayer_sessions
+    assert any("已离开多人房间" in message for message in client.ui_system.messages)
+
+
 def test_multi_save_slots_and_player_colors():
     """测试 UI 多存档槽位和稳定的非亮黄色玩家颜色。"""
     from ui.client_controller import UIClient

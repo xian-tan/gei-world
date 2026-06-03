@@ -309,6 +309,45 @@ class UIClient:
         next_index = (client_ids.index(self.active_multiplayer_client_id) + 1) % len(client_ids)
         return self._activate_multiplayer_client(client_ids[next_index])
     
+    def _leave_multiplayer_room(self):
+        """离开当前多人房间并回到开始界面。"""
+        if hasattr(self.session, 'leave_room'):
+            response = self.session.leave_room()
+            if not response.get("success"):
+                self._notify(f"离开房间失败：{response.get('message', '未知错误')}")
+                return False
+        elif self.multiplayer_server and self.active_multiplayer_client_id:
+            self.multiplayer_server.leave_room(self.multiplayer_room_id, self.active_multiplayer_client_id)
+        self._clear_multiplayer_context()
+        self.session = LocalGameSession()
+        self.game_started = False
+        self.local_player_id = None
+        self._clear_ui_selection_state()
+        self.ui_system.close_modal()
+        self._notify("已离开多人房间。")
+        return True
+    
+    def _show_leave_multiplayer_modal(self):
+        """显示离开多人房间确认。"""
+        self.ui_system.show_modal(
+            "离开多人房间",
+            ["确定要离开当前多人房间吗？"],
+            [
+                {
+                    'text': "继续游戏",
+                    'callback': self.ui_system.close_modal,
+                    'color': COLORS['LIGHT_GRAY'],
+                    'text_color': COLORS['BLACK']
+                },
+                {
+                    'text': "离开房间",
+                    'callback': self._leave_multiplayer_room,
+                    'color': COLORS['RED'],
+                    'text_color': COLORS['WHITE']
+                }
+            ]
+        )
+    
     def _show_local_multiplayer_modal(self):
         """显示本机多人模式选择。"""
         self.ui_system.show_modal(
@@ -1010,6 +1049,9 @@ class UIClient:
             return
         
         if key == pygame.K_TAB and self._switch_multiplayer_client():
+            return
+        if key == pygame.K_q and self.multiplayer_room_id:
+            self._show_leave_multiplayer_modal()
             return
         
         if self.game_engine.game_over:
