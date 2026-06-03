@@ -19,8 +19,26 @@ from src.models import ActionType, GameAction
 from src.systems.turn_system import TurnSystem
 
 
-def run_demo(base_url: str, turn_mode: str = TurnSystem.MODE_SIMULTANEOUS, map_seed: int = 123):
+def run_demo(base_url: str, turn_mode: str = TurnSystem.MODE_SIMULTANEOUS, map_seed: int = 123,
+             room_id: str = None, player_name: str = "玩家2"):
     client = HTTPMultiplayerClient(base_url)
+    if room_id:
+        joined = client.join_room(room_id, player_name)
+        if not joined.get("success"):
+            raise RuntimeError(joined.get("message", "加入房间失败"))
+        guest_client_id = joined["client_id"]
+        start_response = client.start_room(room_id, turn_mode=turn_mode)
+        if not start_response.get("success"):
+            raise RuntimeError(start_response.get("message", "开始房间失败"))
+        guest_session = HTTPNetworkSession(client, room_id, guest_client_id)
+        guest_player = guest_session.get_controlled_player()
+        log = [
+            f"房间: {room_id}",
+            f"模式: {turn_mode}",
+            f"加入客户端: {guest_client_id}->{guest_player.id}",
+        ]
+        return {"room_id": room_id, "turn": guest_session.get_player_view()["view"]["turn"], "log": log}
+
     created = client.create_room("玩家1", max_players=2, turn_mode=turn_mode, map_seed=map_seed)
     if not created.get("success"):
         raise RuntimeError(created.get("message", "创建房间失败"))
@@ -84,8 +102,10 @@ def main():
     parser.add_argument("--url", default="http://127.0.0.1:8000", help="多人 HTTP 服务地址")
     parser.add_argument("--turn-mode", choices=[TurnSystem.MODE_SEQUENTIAL, TurnSystem.MODE_SIMULTANEOUS], default=TurnSystem.MODE_SIMULTANEOUS)
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--room-id", default=None, help="加入已有房间；不填则创建调试双人房")
+    parser.add_argument("--player-name", default="玩家2", help="加入已有房间时使用的玩家名")
     args = parser.parse_args()
-    summary = run_demo(args.url, args.turn_mode, args.seed)
+    summary = run_demo(args.url, args.turn_mode, args.seed, args.room_id, args.player_name)
     for line in summary["log"]:
         print(line)
     print("✓ HTTP 远端多人流程完成")

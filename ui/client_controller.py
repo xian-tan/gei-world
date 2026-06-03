@@ -246,9 +246,14 @@ class UIClient:
         self._notify("按 TAB 在玩家1/玩家2视角间切换。")
         return True
     
-    def _start_http_multiplayer(self, base_url: str = "http://127.0.0.1:8000",
+    def _get_http_base_url(self) -> str:
+        """获取 HTTP 多人服务地址；可用环境变量覆盖。"""
+        return os.environ.get("GEI_WORLD_HTTP_URL", "http://127.0.0.1:8000")
+    
+    def _start_http_multiplayer(self, base_url: str = None,
                                 turn_mode: str = "simultaneous", map_seed: int = 123):
         """连接 HTTP 多人服务并创建调试双人房间。"""
+        base_url = base_url or self._get_http_base_url()
         try:
             http_client = HTTPMultiplayerClient(base_url, timeout=1.5)
             created = http_client.create_room("玩家1", max_players=2, turn_mode=turn_mode, map_seed=map_seed)
@@ -283,6 +288,84 @@ class UIClient:
         self.ui_system.close_modal()
         self._notify(f"HTTP 多人房间已开始：{turn_mode}")
         self._notify("按 TAB 在玩家1/玩家2视角间切换。")
+        return True
+    
+    def _create_http_room(self, base_url: str = None, turn_mode: str = "simultaneous",
+                          map_seed: int = 123, host_name: str = "玩家1"):
+        """创建 HTTP 房间但不立即开始，供另一客户端按房间号加入。"""
+        base_url = base_url or self._get_http_base_url()
+        response = HTTPMultiplayerClient(base_url, timeout=1.5).create_room(
+            host_name,
+            max_players=2,
+            turn_mode=turn_mode,
+            map_seed=map_seed
+        )
+        if not response.get("success"):
+            self._notify(f"创建 HTTP 房间失败：{response.get('message', '未知错误')}")
+            return None
+        room_id = response["room"]["room_id"]
+        client_id = response["client_id"]
+        self._notify(f"HTTP 房间已创建：{room_id}，客户端：{client_id}")
+        self._notify("另一客户端可用房间号加入；房主可稍后重连。")
+        return response
+    
+    def _join_http_multiplayer_room(self, base_url: str = None, room_id: str = None,
+                                    player_name: str = "玩家2", turn_mode: str = None,
+                                    map_seed: int = None):
+        """加入已有 HTTP 房间；满 2 人后尝试启动房间并进入游戏。"""
+        base_url = base_url or self._get_http_base_url()
+        room_id = room_id or os.environ.get("GEI_WORLD_ROOM_ID")
+        player_name = os.environ.get("GEI_WORLD_PLAYER_NAME", player_name)
+        if not room_id:
+            self._notify("缺少房间号：请设置 GEI_WORLD_ROOM_ID。")
+            return False
+        http_client = HTTPMultiplayerClient(base_url, timeout=1.5)
+        joined = http_client.join_room(room_id, player_name)
+        if not joined.get("success"):
+            self._notify(f"加入 HTTP 房间失败：{joined.get('message', '未知错误')}")
+            return False
+        client_id = joined["client_id"]
+        start_response = http_client.start_room(room_id, map_seed=map_seed, turn_mode=turn_mode)
+        if not start_response.get("success"):
+            self._notify(f"加入成功但房间未开始：{start_response.get('message', '等待房主开始')}")
+            return False
+        session = HTTPNetworkSession(http_client, room_id, client_id)
+        session.get_player_view()
+        self.multiplayer_server = None
+        self.multiplayer_room_id = room_id
+        self.multiplayer_sessions = {client_id: session}
+        self.ai_manager = AIManager()
+        self.game_started = True
+        self._activate_multiplayer_client(client_id, notify=False)
+        self._center_camera_on_map()
+        self.ui_system.close_modal()
+        self._notify(f"已加入 HTTP 房间：{room_id}")
+        return True
+    
+    def _connect_http_multiplayer_existing(self, base_url: str = None, room_id: str = None,
+                                           client_id: str = None):
+        """使用已有 room_id/client_id 连接已开始的 HTTP 房间。"""
+        base_url = base_url or self._get_http_base_url()
+        room_id = room_id or os.environ.get("GEI_WORLD_ROOM_ID")
+        client_id = client_id or os.environ.get("GEI_WORLD_CLIENT_ID")
+        if not room_id or not client_id:
+            self._notify("缺少房间号或客户端ID：请设置 GEI_WORLD_ROOM_ID / GEI_WORLD_CLIENT_ID。")
+            return False
+        http_client = HTTPMultiplayerClient(base_url, timeout=1.5)
+        session = HTTPNetworkSession(http_client, room_id, client_id)
+        view_response = session.get_player_view()
+        if not view_response.get("success"):
+            self._notify(f"连接 HTTP 房间失败：{view_response.get('message', '未知错误')}")
+            return False
+        self.multiplayer_server = None
+        self.multiplayer_room_id = room_id
+        self.multiplayer_sessions = {client_id: session}
+        self.ai_manager = AIManager()
+        self.game_started = True
+        self._activate_multiplayer_client(client_id, notify=False)
+        self._center_camera_on_map()
+        self.ui_system.close_modal()
+        self._notify(f"已连接 HTTP 房间：{room_id}")
         return True
     
     def _activate_multiplayer_client(self, client_id: str, notify: bool = True) -> bool:
@@ -377,20 +460,39 @@ class UIClient:
     
     def _show_http_multiplayer_modal(self):
         """显示 HTTP 多人模式选择。"""
+        base_url = self._get_http_base_url()
         self.ui_system.show_modal(
             "HTTP 多人原型",
-            ["连接 http://127.0.0.1:8000", "需先启动 scripts/multiplayer_http_server.py"],
+            [f"服务: {base_url}", "可用 GEI_WORLD_HTTP_URL / ROOM_ID / CLIENT_ID 覆盖"],
             [
                 {
-                    'text': "HTTP 轮流回合",
+                    'text': "创建调试房(轮流)",
                     'callback': lambda: self._start_http_multiplayer(turn_mode="sequential"),
                     'color': COLORS['BLUE'],
                     'text_color': COLORS['WHITE']
                 },
                 {
-                    'text': "HTTP 同时回合",
+                    'text': "创建调试房(同时)",
                     'callback': lambda: self._start_http_multiplayer(turn_mode="simultaneous"),
                     'color': COLORS['GREEN'],
+                    'text_color': COLORS['WHITE']
+                },
+                {
+                    'text': "仅创建等待房",
+                    'callback': lambda: self._create_http_room(turn_mode=os.environ.get("GEI_WORLD_TURN_MODE", "simultaneous")),
+                    'color': COLORS['ORANGE'],
+                    'text_color': COLORS['BLACK']
+                },
+                {
+                    'text': "加入环境变量房间",
+                    'callback': self._join_http_multiplayer_room,
+                    'color': COLORS['PURPLE'],
+                    'text_color': COLORS['WHITE']
+                },
+                {
+                    'text': "重连环境变量房间",
+                    'callback': self._connect_http_multiplayer_existing,
+                    'color': COLORS['BLUE'],
                     'text_color': COLORS['WHITE']
                 },
                 {
