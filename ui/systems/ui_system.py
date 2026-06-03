@@ -215,6 +215,7 @@ class UISystem:
                 surface.blit(text, (panel_x + 10, y_offset))
                 y_offset += 20
             
+            y_offset = self._render_multiplayer_info(surface, game_state, panel_x, y_offset + 8)
             y_offset = self._render_selection_info(surface, game_state, panel_x, y_offset + 8)
             y_offset = self._render_move_quantity_slider(surface, game_state, panel_x, y_offset + 8)
             
@@ -236,6 +237,30 @@ class UISystem:
                 text = self.font_manager.render_text(help_text, 'small', COLORS['DARK_GRAY'])
                 surface.blit(text, (panel_x + 10, y_offset))
                 y_offset += 16
+    
+    def _render_multiplayer_info(self, surface: pygame.Surface, game_state: Dict[str, Any],
+                                 panel_x: int, y_offset: int) -> int:
+        """渲染进程内多人房间状态摘要。"""
+        multiplayer_status = game_state.get('multiplayer_status')
+        if not multiplayer_status:
+            return y_offset
+        lines = [
+            "=== 多人房间 ===",
+            f"房间: {multiplayer_status.get('room_id')}",
+            f"客户端: {multiplayer_status.get('active_client_id')}",
+            f"可见/探索: {multiplayer_status.get('visible_tile_count', 0)}/{multiplayer_status.get('explored_tile_count', 0)}",
+        ]
+        active_player_id = multiplayer_status.get('active_player_id')
+        for seat in multiplayer_status.get('seats', []):
+            marker = "*" if seat.get('player_id') == active_player_id else " "
+            ended = "已结束" if seat.get('ended_turn') else "行动中"
+            lines.append(f"{marker}{seat.get('player_name')}: {ended}")
+        lines.append("TAB: 切换玩家视角")
+        for line in lines[:8]:
+            text = self.font_manager.render_text(line, 'small', COLORS['BLACK'])
+            surface.blit(text, (panel_x + 10, y_offset))
+            y_offset += 16
+        return y_offset
     
     def _render_selection_info(self, surface: pygame.Surface, game_state: Dict[str, Any],
                                panel_x: int, y_offset: int) -> int:

@@ -559,6 +559,33 @@ class UIClient:
         if path:
             self.render_system.set_path_preview(path)
     
+    def _get_multiplayer_status(self) -> Optional[Dict[str, Any]]:
+        """获取进程内多人房间状态摘要。"""
+        if not self.multiplayer_server or not self.multiplayer_room_id:
+            return None
+        room_state = self.multiplayer_server.get_room_state(self.multiplayer_room_id)
+        active_player_id = self.session.player_id if hasattr(self.session, 'player_id') else self.local_player_id
+        view_response = None
+        if self.active_multiplayer_client_id:
+            view_response = self.multiplayer_server.get_player_view(
+                self.multiplayer_room_id,
+                self.active_multiplayer_client_id
+            )
+        view = view_response.get("view") if view_response and view_response.get("success") else None
+        visible_tile_count = 0
+        explored_tile_count = 0
+        if view:
+            visible_tile_count = sum(1 for tile in view["tiles"].values() if tile.get("visible"))
+            explored_tile_count = sum(1 for tile in view["tiles"].values() if tile.get("explored"))
+        return {
+            "room_id": self.multiplayer_room_id,
+            "active_client_id": self.active_multiplayer_client_id,
+            "active_player_id": active_player_id,
+            "seats": room_state.get("seats", []),
+            "visible_tile_count": visible_tile_count,
+            "explored_tile_count": explored_tile_count,
+        }
+    
     def _get_game_state(self) -> Dict[str, Any]:
         """获取游戏状态快照"""
         controlled_player = self._get_controlled_player()
@@ -582,7 +609,8 @@ class UIClient:
             'selected_tile': selected_tile,
             'selected_unit': selected_unit,
             'selected_city': selected_city,
-            'move_mode_active': self.move_mode_active
+            'move_mode_active': self.move_mode_active,
+            'multiplayer_status': self._get_multiplayer_status()
         }
     
     def _get_tile_at_screen_pos(self, screen_x: int, screen_y: int) -> Optional[HexCoord]:

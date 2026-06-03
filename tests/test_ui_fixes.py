@@ -514,11 +514,19 @@ def test_local_multiplayer_ui_starts_and_switches_clients():
     assert client.game_engine.turn_system.mode == "simultaneous"
     host_player = client._get_controlled_player()
     assert host_player.id == "player_0"
+    status = client._get_game_state()['multiplayer_status']
+    assert status['room_id'] == client.multiplayer_room_id
+    assert status['active_player_id'] == "player_0"
+    assert len(status['seats']) == 2
+    assert status['visible_tile_count'] > 0
     client._handle_end_turn(force=True)
     assert not client._can_controlled_player_act()
+    status = client._get_game_state()['multiplayer_status']
+    assert status['seats'][0]['ended_turn']
     assert client._switch_multiplayer_client()
     guest_player = client._get_controlled_player()
     assert guest_player.id == "player_1"
+    assert client._get_game_state()['multiplayer_status']['active_player_id'] == "player_1"
     assert client._can_controlled_player_act()
     client._handle_end_turn(force=True)
     assert client.game_engine.turn_system.current_turn == 2

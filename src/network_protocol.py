@@ -83,6 +83,8 @@ def deserialize_action_result(data: Dict[str, Any]) -> ActionResult:
 
 def serialize_room_state(room) -> Dict[str, Any]:
     """序列化房间状态。"""
+    ended_player_ids = getattr(room.engine.turn_system, "ended_player_ids", set()) if room.engine else set()
+    actionable_player_ids = set(room.engine.turn_system.get_turn_status().get("actionable_player_ids", [])) if room.engine else set()
     return {
         "room_id": room.room_id,
         "started": room.started,
@@ -94,7 +96,9 @@ def serialize_room_state(room) -> Dict[str, Any]:
                 "client_id": seat.client_id,
                 "player_name": seat.player_name,
                 "player_id": seat.player_id,
-                "connected": seat.connected
+                "connected": seat.connected,
+                "ended_turn": seat.player_id in ended_player_ids,
+                "can_act": seat.player_id in actionable_player_ids
             }
             for seat in room.seats
         ]
