@@ -51,7 +51,8 @@ python scripts/ui_game.py
 
 开始界面：
 
-- `SPACE`：新游戏
+- `SPACE`：单人轮流回合新游戏
+- `T`：单人同时回合新游戏
 - `L`：打开存档列表
 - `ESC`：弹出退出确认
 

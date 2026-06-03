@@ -474,11 +474,29 @@ def test_simultaneous_mode_ui_uses_local_player_view():
     assert client.input_system.mode == InputMode.UNIT_SELECTED
     assert client.input_system.get_selected_unit_id() == player2.units[0].id
     
+    client.ai_manager.clear()
     client._handle_end_turn(force=True)
     assert player2.id in client.game_engine.turn_system.ended_player_ids
     assert not client._can_controlled_player_act()
     assert client._get_game_state()['turn_mode'] == "simultaneous"
     assert not client._get_game_state()['can_act']
+
+
+def test_simultaneous_single_player_ai_advances_after_human_end():
+    """测试单人同时回合中玩家结束后 AI 会自动完成本轮并推进整轮。"""
+    from ui.client_controller import UIClient
+    
+    pygame.init()
+    client = UIClient()
+    assert client.start_game(["玩家1", "AI玩家"], 123, turn_mode="simultaneous")
+    human_player, ai_player = client.game_engine.player_system.players
+    assert client.game_engine.turn_system.current_turn == 1
+    client._handle_end_turn(force=True)
+    assert client.game_engine.turn_system.current_turn == 2
+    assert client.game_engine.turn_system.ended_player_ids == set()
+    assert client._get_controlled_player() == human_player
+    assert client._can_controlled_player_act()
+    assert ai_player.cities or not ai_player.units
 
 
 def test_multi_save_slots_and_player_colors():
@@ -576,6 +594,12 @@ def test_start_menu_and_game_over_keys():
     menu_client._handle_key_press(pygame.K_SPACE, True)
     assert menu_client.game_started
     assert menu_client.game_engine.player_system.players
+    assert menu_client.game_engine.turn_system.mode == "sequential"
+    
+    simultaneous_menu_client = UIClient()
+    simultaneous_menu_client._handle_key_press(pygame.K_t, True)
+    assert simultaneous_menu_client.game_started
+    assert simultaneous_menu_client.game_engine.turn_system.mode == "simultaneous"
     
     exit_client = UIClient()
     exit_client.game_started = False

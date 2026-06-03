@@ -285,6 +285,60 @@ class UIClient:
                 params={}
             ))
             self._notify_action_result(result, current_player.name)
+    
+    def _process_simultaneous_ai_turns(self):
+        """同时回合模式下处理所有仍可行动的 AI，直到 AI 全部结束本回合。"""
+        safety_limit = 200
+        per_ai_turn_limit = 20
+        actions_taken = 0
+        actions_by_player = {}
+        starting_turn = self.game_engine.turn_system.current_turn
+        while (not self.game_engine.game_over and actions_taken < safety_limit and
+               self.game_engine.turn_system.current_turn == starting_turn):
+            ai_players = [
+                player for player in self.game_engine.player_system.players
+                if self.ai_manager.is_ai_player(player.id)
+                and self.game_engine.turn_system.can_player_act(player.id)
+            ]
+            if not ai_players:
+                break
+            for current_player in ai_players:
+                actions_this_turn = actions_by_player.get(current_player.id, 0)
+                if actions_this_turn >= per_ai_turn_limit:
+                    action = GameAction(
+                        player_id=current_player.id,
+                        action_type=ActionType.END_TURN,
+                        params={}
+                    )
+                else:
+                    action = self.ai_manager.get_ai_action(current_player.id, self.game_engine)
+                    if not action:
+                        action = GameAction(
+                            player_id=current_player.id,
+                            action_type=ActionType.END_TURN,
+                            params={}
+                        )
+                
+                result = self.session.submit_action(action)
+                actions_taken += 1
+                self._notify_action_result(result, current_player.name)
+                if self.game_engine.turn_system.current_turn != starting_turn:
+                    break
+                if action.action_type == ActionType.END_TURN:
+                    actions_by_player[current_player.id] = 0
+                    continue
+                if not result.success:
+                    if self.game_engine.turn_system.can_player_act(current_player.id):
+                        end_result = self.session.submit_action(GameAction(
+                            player_id=current_player.id,
+                            action_type=ActionType.END_TURN,
+                            params={}
+                        ))
+                        actions_taken += 1
+                        self._notify_action_result(end_result, current_player.name)
+                    actions_by_player[current_player.id] = 0
+                else:
+                    actions_by_player[current_player.id] = actions_this_turn + 1
             
     def _center_camera_on_map(self):
         """将摄像机居中到地图"""
@@ -373,7 +427,8 @@ class UIClient:
         self.screen.blit(title, title_rect)
         
         instructions = [
-            "SPACE 新游戏",
+            "SPACE 单人轮流回合",
+            "T 单人同时回合",
             "L 加载游戏",
             "ESC 退出",
         ]
@@ -745,14 +800,16 @@ class UIClient:
         
         if not self.game_started:
             if key == pygame.K_SPACE:
-                self.start_game(["玩家1", "AI玩家"])
+                self.start_game(["玩家1", "AI玩家"], turn_mode="sequential")
+            elif key == pygame.K_t:
+                self.start_game(["玩家1", "AI玩家"], turn_mode="simultaneous")
             elif key == pygame.K_l:
                 self._handle_load_game()
             return
         
         if self.game_engine.game_over:
             if key == pygame.K_r:
-                self.start_game(["玩家1", "AI玩家"])
+                self.start_game(["玩家1", "AI玩家"], turn_mode=self.game_engine.turn_system.mode)
             return
         
         if self._handle_soldier_quantity_hotkey(key):
@@ -852,6 +909,8 @@ class UIClient:
             self._clear_ui_selection_state()
             if self.game_engine.turn_system.mode == "sequential":
                 self._process_ai_turns()
+            else:
+                self._process_simultaneous_ai_turns()
     
     def _format_save_summary(self, save_info: Dict[str, Any]) -> str:
         """格式化存档列表项。"""
