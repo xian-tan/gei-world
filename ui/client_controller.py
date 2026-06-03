@@ -11,8 +11,9 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
-from src.game_session import LocalGameSession
+from src.game_session import LocalGameSession, NetworkGameSession
 from src.models import GameAction, ActionType, HexCoord, UnitType, Player
+from src.multiplayer_server import MultiplayerServer
 from src.systems.ai_system import AIManager
 from src.systems.save_system import GameSaveSystem
 from ui.systems.render_system import RenderSystem
@@ -51,6 +52,10 @@ class UIClient:
         self.game_started = False
         self.move_mode_active = False
         self.local_player_id = None
+        self.multiplayer_server = None
+        self.multiplayer_room_id = None
+        self.multiplayer_sessions = {}
+        self.active_multiplayer_client_id = None
         
         # 设置输入回调
         self._setup_input_callbacks()
@@ -68,6 +73,14 @@ class UIClient:
     def game_engine(self, engine):
         """兼容测试和存档加载流程的引擎替换入口。"""
         self.session = LocalGameSession(engine)
+        self._clear_multiplayer_context()
+    
+    def _clear_multiplayer_context(self):
+        """清理进程内多人房间上下文。"""
+        self.multiplayer_server = None
+        self.multiplayer_room_id = None
+        self.multiplayer_sessions = {}
+        self.active_multiplayer_client_id = None
     
     def _setup_input_callbacks(self):
         """设置输入系统回调"""
@@ -187,6 +200,7 @@ class UIClient:
         new_session = LocalGameSession()
         if new_session.start_game(player_names, map_seed, turn_mode=turn_mode):
             self.session = new_session
+            self._clear_multiplayer_context()
             self.game_started = True
             self.local_player_id = self.game_engine.player_system.players[0].id if self.game_engine.player_system.players else None
             self._clear_ui_selection_state()
@@ -202,6 +216,85 @@ class UIClient:
             self._notify("目标：建城、生产士兵，探索并占领对手城市。")
             return True
         return False
+    
+    def _start_local_multiplayer(self, turn_mode: str = "simultaneous", map_seed: int = 123):
+        """启动进程内本机双人多人房间。"""
+        server = MultiplayerServer()
+        created = server.create_room("玩家1", max_players=2, turn_mode=turn_mode, map_seed=map_seed)
+        room_id = created["room"]["room_id"]
+        host_client_id = created["client_id"]
+        joined = server.join_room(room_id, "玩家2")
+        guest_client_id = joined["client_id"]
+        host_session = NetworkGameSession(server, room_id, host_client_id)
+        if not host_session.start_game(turn_mode=turn_mode):
+            self._notify("本机多人房间启动失败")
+            return False
+        guest_session = NetworkGameSession(server, room_id, guest_client_id)
+        self.multiplayer_server = server
+        self.multiplayer_room_id = room_id
+        self.multiplayer_sessions = {
+            host_client_id: host_session,
+            guest_client_id: guest_session,
+        }
+        self.ai_manager = AIManager()
+        self.game_started = True
+        self._activate_multiplayer_client(host_client_id, notify=False)
+        self._center_camera_on_map()
+        self.ui_system.close_modal()
+        self._notify(f"本机多人房间已开始：{turn_mode}")
+        self._notify("按 TAB 在玩家1/玩家2视角间切换。")
+        return True
+    
+    def _activate_multiplayer_client(self, client_id: str, notify: bool = True) -> bool:
+        """切换当前 UI 到指定本机多人客户端。"""
+        session = self.multiplayer_sessions.get(client_id)
+        if not session:
+            return False
+        self.session = session
+        self.active_multiplayer_client_id = client_id
+        self.local_player_id = session.player_id
+        self._clear_ui_selection_state()
+        if notify:
+            player = self._get_controlled_player()
+            self._notify(f"已切换到 {player.name if player else client_id} 视角")
+        return True
+    
+    def _switch_multiplayer_client(self) -> bool:
+        """在本机多人客户端之间切换。"""
+        if not self.multiplayer_sessions:
+            return False
+        client_ids = list(self.multiplayer_sessions.keys())
+        if self.active_multiplayer_client_id not in client_ids:
+            return self._activate_multiplayer_client(client_ids[0])
+        next_index = (client_ids.index(self.active_multiplayer_client_id) + 1) % len(client_ids)
+        return self._activate_multiplayer_client(client_ids[next_index])
+    
+    def _show_local_multiplayer_modal(self):
+        """显示本机多人模式选择。"""
+        self.ui_system.show_modal(
+            "本机多人原型",
+            ["创建一个进程内双人房间。", "开始后按 TAB 在两个玩家视角间切换。"],
+            [
+                {
+                    'text': "轮流回合多人",
+                    'callback': lambda: self._start_local_multiplayer("sequential"),
+                    'color': COLORS['BLUE'],
+                    'text_color': COLORS['WHITE']
+                },
+                {
+                    'text': "同时回合多人",
+                    'callback': lambda: self._start_local_multiplayer("simultaneous"),
+                    'color': COLORS['GREEN'],
+                    'text_color': COLORS['WHITE']
+                },
+                {
+                    'text': "取消",
+                    'callback': self.ui_system.close_modal,
+                    'color': COLORS['LIGHT_GRAY'],
+                    'text_color': COLORS['BLACK']
+                }
+            ]
+        )
     
     def _setup_ai_players(self):
         """将第一个玩家之外的玩家设为 AI。"""
@@ -429,6 +522,7 @@ class UIClient:
         instructions = [
             "SPACE 单人轮流回合",
             "T 单人同时回合",
+            "M 本机多人原型",
             "L 加载游戏",
             "ESC 退出",
         ]
@@ -803,8 +897,13 @@ class UIClient:
                 self.start_game(["玩家1", "AI玩家"], turn_mode="sequential")
             elif key == pygame.K_t:
                 self.start_game(["玩家1", "AI玩家"], turn_mode="simultaneous")
+            elif key == pygame.K_m:
+                self._show_local_multiplayer_modal()
             elif key == pygame.K_l:
                 self._handle_load_game()
+            return
+        
+        if key == pygame.K_TAB and self._switch_multiplayer_client():
             return
         
         if self.game_engine.game_over:
@@ -1003,6 +1102,7 @@ class UIClient:
                 return
             
             self.session = LocalGameSession(loaded_engine)
+            self._clear_multiplayer_context()
             self.game_started = True
             if not self.game_engine.player_system.get_player_by_id(self.local_player_id):
                 self.local_player_id = self.game_engine.player_system.players[0].id if self.game_engine.player_system.players else None

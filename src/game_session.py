@@ -137,7 +137,7 @@ class NetworkGameSession:
 
     def get_controlled_player(self, local_player_id: str = None) -> Optional[Player]:
         engine = self.server.get_room_engine(self.room_id)
-        player_id = local_player_id or self.player_id
+        player_id = self.player_id
         return engine.player_system.get_player_by_id(player_id) if engine and player_id else None
 
     def can_player_act(self, player_id: str) -> bool:

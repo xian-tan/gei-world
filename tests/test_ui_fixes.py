@@ -499,6 +499,48 @@ def test_simultaneous_single_player_ai_advances_after_human_end():
     assert ai_player.cities or not ai_player.units
 
 
+def test_local_multiplayer_ui_starts_and_switches_clients():
+    """测试进程内多人 UI 原型可启动并切换两个客户端视角。"""
+    from ui.client_controller import UIClient
+    
+    pygame.init()
+    client = UIClient()
+    client._handle_key_press(pygame.K_m, True)
+    assert client.ui_system.has_active_modal()
+    assert client._start_local_multiplayer("simultaneous", map_seed=123)
+    assert client.game_started
+    assert client.multiplayer_server is not None
+    assert len(client.multiplayer_sessions) == 2
+    assert client.game_engine.turn_system.mode == "simultaneous"
+    host_player = client._get_controlled_player()
+    assert host_player.id == "player_0"
+    client._handle_end_turn(force=True)
+    assert not client._can_controlled_player_act()
+    assert client._switch_multiplayer_client()
+    guest_player = client._get_controlled_player()
+    assert guest_player.id == "player_1"
+    assert client._can_controlled_player_act()
+    client._handle_end_turn(force=True)
+    assert client.game_engine.turn_system.current_turn == 2
+    assert client.game_engine.turn_system.ended_player_ids == set()
+
+
+def test_local_multiplayer_ui_supports_sequential_switching():
+    """测试本机多人轮流回合中可切换到下一位客户端继续操作。"""
+    from ui.client_controller import UIClient
+    
+    pygame.init()
+    client = UIClient()
+    assert client._start_local_multiplayer("sequential", map_seed=123)
+    host_player = client._get_controlled_player()
+    assert host_player.id == "player_0"
+    client._handle_end_turn(force=True)
+    assert not client._can_controlled_player_act()
+    assert client._switch_multiplayer_client()
+    assert client._get_controlled_player().id == "player_1"
+    assert client._can_controlled_player_act()
+
+
 def test_multi_save_slots_and_player_colors():
     """测试 UI 多存档槽位和稳定的非亮黄色玩家颜色。"""
     from ui.client_controller import UIClient
