@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Protocol, Set
 
 from .game_engine import GameEngine
 from .models import ActionResult, GameAction, GameState, HexCoord, Player
-from .network_protocol import deserialize_action_result, serialize_action
+from .network_protocol import deserialize_action_result, parse_coord, serialize_action
 from .systems.turn_system import TurnSystem
 
 
@@ -159,3 +159,88 @@ class NetworkGameSession:
     def get_player_view(self) -> Dict[str, object]:
         """获取服务端返回的当前玩家安全视图。"""
         return self.server.get_player_view(self.room_id, self.client_id)
+
+
+class HTTPNetworkSession:
+    """HTTP 网络会话，通过 HTTPMultiplayerClient 访问远端服务端权威状态。"""
+
+    def __init__(self, http_client, room_id: str, client_id: str):
+        self.http_client = http_client
+        self.room_id = room_id
+        self.client_id = client_id
+        self._view_cache: Optional[Dict[str, object]] = None
+
+    @property
+    def engine(self) -> GameEngine:
+        """HTTP 会话暂不维护完整对象镜像，返回空引擎用于兼容接口。"""
+        return GameEngine()
+
+    @property
+    def player_id(self) -> Optional[str]:
+        view = self._poll_view()
+        return view.get("player_id") if view else None
+
+    def start_game(self, player_names: List[str] = None, map_seed: int = None,
+                   turn_mode: str = TurnSystem.MODE_SIMULTANEOUS) -> bool:
+        response = self.http_client.start_room(self.room_id, map_seed=map_seed, turn_mode=turn_mode)
+        if response.get("success"):
+            views = response.get("views", {})
+            self._view_cache = views.get(self.client_id)
+        return bool(response.get("success"))
+
+    def submit_action(self, action: GameAction) -> ActionResult:
+        response = self.http_client.submit_action(self.room_id, self.client_id, action)
+        if response.get("view"):
+            self._view_cache = response["view"]
+        return deserialize_action_result(response["result"])
+
+    def get_turn_status(self) -> Dict[str, object]:
+        view = self._poll_view()
+        return view.get("turn_status", {}) if view else {}
+
+    def get_controlled_player(self, local_player_id: str = None) -> Optional[Player]:
+        view = self._poll_view()
+        if not view:
+            return None
+        player_data = next((player for player in view.get("players", []) if player.get("is_self")), None)
+        if not player_data:
+            return None
+        return Player(
+            id=player_data["id"],
+            name=player_data["name"],
+            gold=player_data.get("gold") or 0
+        )
+
+    def can_player_act(self, player_id: str) -> bool:
+        turn_status = self.get_turn_status()
+        return player_id in set(turn_status.get("actionable_player_ids", []))
+
+    def get_visible_state(self, player_id: str) -> Optional[GameState]:
+        return None
+
+    def get_visible_tiles(self, player_id: str) -> Set[HexCoord]:
+        view = self._poll_view()
+        return self._tiles_matching(view, "visible") if view else set()
+
+    def get_explored_tiles(self, player_id: str) -> Set[HexCoord]:
+        view = self._poll_view()
+        return self._tiles_matching(view, "explored") if view else set()
+
+    def get_player_view(self) -> Dict[str, object]:
+        response = self.http_client.get_player_view(self.room_id, self.client_id)
+        if response.get("success"):
+            self._view_cache = response.get("view")
+        return response
+
+    def _poll_view(self) -> Optional[Dict[str, object]]:
+        if self._view_cache is None:
+            self.get_player_view()
+        return self._view_cache
+
+    def _tiles_matching(self, view: Dict[str, object], key: str) -> Set[HexCoord]:
+        tiles = view.get("tiles", {})
+        return {
+            parse_coord(coord_key)
+            for coord_key, tile in tiles.items()
+            if tile.get(key)
+        }
