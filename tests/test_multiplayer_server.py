@@ -85,15 +85,46 @@ def test_multiplayer_server_simultaneous_turn_flow():
 def test_multiplayer_server_leave_and_reconnect_room():
     server, room_id, client1, client2 = _started_two_player_room()
 
-    left = server.leave_room(room_id, client1)
+    left = server.leave_room(room_id, client2)
     assert left["success"]
-    assert not left["room"]["seats"][0]["connected"]
+    assert not left["room"]["seats"][1]["connected"]
     assert left["room"]["recent_events"][-1]["event_type"] == "player_left"
 
-    reconnected = server.reconnect_room(room_id, client1)
+    offline_action = server.submit_action(room_id, client2, serialize_action(GameAction(
+        player_id="player_1",
+        action_type=ActionType.END_TURN,
+        params={}
+    )))
+    assert not offline_action["success"]
+    assert "离线" in offline_action["result"]["message"]
+
+    reconnected = server.reconnect_room(room_id, client2)
     assert reconnected["success"]
-    assert reconnected["room"]["seats"][0]["connected"]
+    assert reconnected["room"]["seats"][1]["connected"]
     assert reconnected["room"]["recent_events"][-1]["event_type"] == "player_reconnected"
+
+
+def test_multiplayer_server_host_leave_closes_room():
+    server, room_id, client1, client2 = _started_two_player_room()
+
+    left = server.leave_room(room_id, client1)
+    assert left["success"]
+    assert left["room"]["closed"]
+    assert left["room"]["close_reason"] == "房主已退出，房间关闭"
+    assert all(not seat["connected"] for seat in left["room"]["seats"])
+    assert left["room"]["recent_events"][-1]["event_type"] == "room_closed"
+
+    action = server.submit_action(room_id, client2, serialize_action(GameAction(
+        player_id="player_1",
+        action_type=ActionType.END_TURN,
+        params={}
+    )))
+    assert not action["success"]
+    assert "房间关闭" in action["result"]["message"]
+
+    reconnected = server.reconnect_room(room_id, client2)
+    assert not reconnected["success"]
+    assert reconnected["room"]["closed"]
 
 
 def test_network_game_session_uses_server_authority():

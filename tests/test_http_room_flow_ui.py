@@ -87,3 +87,35 @@ def test_http_ui_connect_requires_room_and_client_id():
     client = UIClient()
     assert not client._connect_http_multiplayer_existing(base_url="http://127.0.0.1:9")
     assert any("缺少房间号或客户端ID" in message for message in client.ui_system.messages)
+
+
+def test_http_ui_reports_room_closed_after_host_leaves():
+    http_server, base_url = _start_http_server()
+    try:
+        pygame.init()
+        host_client = UIClient()
+        created = host_client._create_http_room(base_url=base_url, turn_mode="simultaneous", map_seed=123)
+        room_id = created["room"]["room_id"]
+        host_client_id = created["client_id"]
+
+        guest_client = UIClient()
+        assert guest_client._join_http_multiplayer_room(
+            base_url=base_url,
+            room_id=room_id,
+            player_name="玩家2",
+            turn_mode="simultaneous"
+        )
+        assert host_client._connect_http_multiplayer_existing(
+            base_url=base_url,
+            room_id=room_id,
+            client_id=host_client_id
+        )
+
+        host_client.session.leave_room()
+        state = guest_client._get_game_state()
+        assert state["multiplayer_status"]["closed"]
+        assert not state["can_act"]
+        assert any("房主已退出，房间关闭" in message for message in guest_client.ui_system.messages)
+    finally:
+        http_server.shutdown()
+        http_server.server_close()

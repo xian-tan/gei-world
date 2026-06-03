@@ -274,11 +274,23 @@ class UISystem:
             f"客户端: {multiplayer_status.get('active_client_id')}",
             f"可见/探索: {multiplayer_status.get('visible_tile_count', 0)}/{multiplayer_status.get('explored_tile_count', 0)}",
         ]
+        if multiplayer_status.get('closed'):
+            close_reason = multiplayer_status.get('close_reason') or "房间已关闭"
+            lines.append(f"已关闭: {close_reason[:12]}")
+        elif multiplayer_status.get('offline_seats'):
+            offline_names = ",".join(seat.get('player_name', '对手') for seat in multiplayer_status.get('offline_seats', []))
+            lines.append(f"离线: {offline_names[:14]}")
         active_player_id = multiplayer_status.get('active_player_id')
         for seat in multiplayer_status.get('seats', []):
             marker = "*" if seat.get('player_id') == active_player_id else " "
-            ended = "已结束" if seat.get('ended_turn') else "行动中"
-            lines.append(f"{marker}{seat.get('player_name')}: {ended}")
+            host = "房主" if seat.get('is_host') else "玩家"
+            if not seat.get('connected'):
+                ended = "离线"
+            elif seat.get('ended_turn'):
+                ended = "已结束"
+            else:
+                ended = "行动中"
+            lines.append(f"{marker}{seat.get('player_name')}({host}): {ended}")
         recent_events = multiplayer_status.get('recent_events', [])[-2:]
         for event in recent_events:
             message = event.get('message') or event.get('event_type')

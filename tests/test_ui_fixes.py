@@ -602,6 +602,27 @@ def test_local_multiplayer_ui_can_leave_room():
     assert any("已离开多人房间" in message for message in client.ui_system.messages)
 
 
+def test_local_multiplayer_ui_reports_opponent_offline_and_room_closed():
+    """测试 UI 展示对手离线和房间关闭状态。"""
+    from ui.client_controller import UIClient
+    
+    pygame.init()
+    client = UIClient()
+    assert client._start_local_multiplayer("simultaneous", map_seed=123)
+    host_client_id, guest_client_id = list(client.multiplayer_sessions.keys())
+
+    client.multiplayer_server.leave_room(client.multiplayer_room_id, guest_client_id)
+    status = client._get_game_state()["multiplayer_status"]
+    assert status["offline_seats"][0]["client_id"] == guest_client_id
+    assert any("玩家2 已离线" in message for message in client.ui_system.messages)
+
+    client.multiplayer_server.leave_room(client.multiplayer_room_id, host_client_id)
+    state = client._get_game_state()
+    assert state["multiplayer_status"]["closed"]
+    assert not state["can_act"]
+    assert any("房主已退出，房间关闭" in message for message in client.ui_system.messages)
+
+
 def test_multi_save_slots_and_player_colors():
     """测试 UI 多存档槽位和稳定的非亮黄色玩家颜色。"""
     from ui.client_controller import UIClient

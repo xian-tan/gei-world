@@ -37,6 +37,8 @@ class MultiplayerRoom:
     seats: List[PlayerSeat] = field(default_factory=list)
     engine: Optional[GameEngine] = None
     started: bool = False
+    closed: bool = False
+    close_reason: str = ""
     event_log: List[Dict[str, object]] = field(default_factory=list)
     next_event_sequence: int = 1
 
@@ -83,6 +85,8 @@ class MultiplayerServer:
     def join_room(self, room_id: str, player_name: str) -> Dict[str, object]:
         """加入未开始的房间。"""
         room = self._get_room(room_id)
+        if room.closed:
+            return self._room_failure(room, room.close_reason or "房间已关闭")
         if room.started:
             return self._failure("房间已开始，无法加入")
         if len(room.seats) >= room.max_players:
@@ -102,6 +106,8 @@ class MultiplayerServer:
                    turn_mode: str = None) -> Dict[str, object]:
         """启动房间，创建服务端唯一权威 GameEngine。"""
         room = self._get_room(room_id)
+        if room.closed:
+            return self._room_failure(room, room.close_reason or "房间已关闭")
         if room.started:
             return self._failure("房间已经开始")
         if len(room.seats) < 2:
@@ -136,6 +142,10 @@ class MultiplayerServer:
         """提交行动到房间权威引擎，并返回行动结果与玩家安全视图。"""
         room = self._get_room(room_id)
         seat = self._require_seat(room, client_id)
+        if room.closed:
+            return self._action_response(room, seat, ActionResult(False, room.close_reason or "房间已关闭"))
+        if not seat.connected:
+            return self._action_response(room, seat, ActionResult(False, "玩家已离线，请先重连"))
         if not room.started or not room.engine:
             return self._action_response(room, seat, ActionResult(False, "房间尚未开始"))
         if not seat.player_id:
@@ -157,6 +167,13 @@ class MultiplayerServer:
         """获取指定客户端对应玩家的安全视图。"""
         room = self._get_room(room_id)
         seat = self._require_seat(room, client_id)
+        if room.closed:
+            return {
+                "success": False,
+                "message": room.close_reason or "房间已关闭",
+                "room": serialize_room_state(room),
+                "view": None
+            }
         if not room.started or not room.engine or not seat.player_id:
             return {
                 "success": False,
@@ -183,17 +200,33 @@ class MultiplayerServer:
         return self._require_seat(self._get_room(room_id), client_id).player_id
 
     def leave_room(self, room_id: str, client_id: str) -> Dict[str, object]:
-        """标记客户端离开房间。"""
+        """标记客户端离开房间；房主离开会关闭房间。"""
         room = self._get_room(room_id)
         seat = self._require_seat(room, client_id)
+        if room.closed:
+            return {"success": True, "room": serialize_room_state(room)}
+
+        was_connected = seat.connected
         seat.connected = False
-        self._record_system_event(room, seat, f"{seat.player_name} 已离开房间", "player_left")
+        if was_connected:
+            self._record_system_event(room, seat, f"{seat.player_name} 已离开房间", "player_left")
+
+        if self._is_host(room, client_id):
+            room.closed = True
+            room.close_reason = "房主已退出，房间关闭"
+            for current_seat in room.seats:
+                current_seat.connected = False
+            self._record_system_event(room, seat, room.close_reason, "room_closed")
         return {"success": True, "room": serialize_room_state(room)}
 
     def reconnect_room(self, room_id: str, client_id: str) -> Dict[str, object]:
         """标记客户端重新连接房间。"""
         room = self._get_room(room_id)
         seat = self._require_seat(room, client_id)
+        if room.closed:
+            return self._room_failure(room, room.close_reason or "房间已关闭")
+        if seat.connected:
+            return {"success": True, "room": serialize_room_state(room)}
         seat.connected = True
         self._record_system_event(room, seat, f"{seat.player_name} 已重新连接", "player_reconnected")
         return {"success": True, "room": serialize_room_state(room)}
@@ -262,5 +295,11 @@ class MultiplayerServer:
             raise KeyError(f"客户端不在房间中: {client_id}")
         return seat
 
+    def _is_host(self, room: MultiplayerRoom, client_id: str) -> bool:
+        return bool(room.seats and room.seats[0].client_id == client_id)
+
     def _failure(self, message: str) -> Dict[str, object]:
         return {"success": False, "message": message}
+
+    def _room_failure(self, room: MultiplayerRoom, message: str) -> Dict[str, object]:
+        return {"success": False, "message": message, "room": serialize_room_state(room)}

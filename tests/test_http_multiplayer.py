@@ -92,19 +92,42 @@ def test_http_multiplayer_leave_and_reconnect_room():
     try:
         created = client.create_room("玩家1", turn_mode=TurnSystem.MODE_SIMULTANEOUS, map_seed=123)
         room_id = created["room"]["room_id"]
-        host_client_id = created["client_id"]
         client.join_room(room_id, "玩家2")
+        guest_client_id = client.get_room_state(room_id)["room"]["seats"][1]["client_id"]
+        client.start_room(room_id, turn_mode=TurnSystem.MODE_SIMULTANEOUS)
+
+        left = client.leave_room(room_id, guest_client_id)
+        assert left["success"]
+        assert not left["room"]["seats"][1]["connected"]
+        assert left["room"]["recent_events"][-1]["event_type"] == "player_left"
+
+        reconnected = client.reconnect_room(room_id, guest_client_id)
+        assert reconnected["success"]
+        assert reconnected["room"]["seats"][1]["connected"]
+        assert reconnected["room"]["recent_events"][-1]["event_type"] == "player_reconnected"
+    finally:
+        http_server.shutdown()
+        http_server.server_close()
+
+
+def test_http_multiplayer_host_leave_closes_room():
+    http_server, client = _start_test_http_server()
+    try:
+        created = client.create_room("玩家1", turn_mode=TurnSystem.MODE_SIMULTANEOUS, map_seed=123)
+        room_id = created["room"]["room_id"]
+        host_client_id = created["client_id"]
+        guest_client_id = client.join_room(room_id, "玩家2")["client_id"]
         client.start_room(room_id, turn_mode=TurnSystem.MODE_SIMULTANEOUS)
 
         left = client.leave_room(room_id, host_client_id)
         assert left["success"]
-        assert not left["room"]["seats"][0]["connected"]
-        assert left["room"]["recent_events"][-1]["event_type"] == "player_left"
+        assert left["room"]["closed"]
+        assert left["room"]["recent_events"][-1]["event_type"] == "room_closed"
 
-        reconnected = client.reconnect_room(room_id, host_client_id)
-        assert reconnected["success"]
-        assert reconnected["room"]["seats"][0]["connected"]
-        assert reconnected["room"]["recent_events"][-1]["event_type"] == "player_reconnected"
+        view = client.get_player_view(room_id, guest_client_id)
+        assert not view["success"]
+        assert view["room"]["closed"]
+        assert "房间关闭" in view["message"]
     finally:
         http_server.shutdown()
         http_server.server_close()

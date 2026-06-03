@@ -85,9 +85,12 @@ def serialize_room_state(room) -> Dict[str, Any]:
     """序列化房间状态。"""
     ended_player_ids = getattr(room.engine.turn_system, "ended_player_ids", set()) if room.engine else set()
     actionable_player_ids = set(room.engine.turn_system.get_turn_status().get("actionable_player_ids", [])) if room.engine else set()
+    host_client_id = room.seats[0].client_id if room.seats else None
     return {
         "room_id": room.room_id,
         "started": room.started,
+        "closed": getattr(room, "closed", False),
+        "close_reason": getattr(room, "close_reason", ""),
         "max_players": room.max_players,
         "turn_mode": room.turn_mode,
         "map_seed": room.map_seed,
@@ -97,8 +100,9 @@ def serialize_room_state(room) -> Dict[str, Any]:
                 "player_name": seat.player_name,
                 "player_id": seat.player_id,
                 "connected": seat.connected,
+                "is_host": seat.client_id == host_client_id,
                 "ended_turn": seat.player_id in ended_player_ids,
-                "can_act": seat.player_id in actionable_player_ids
+                "can_act": seat.player_id in actionable_player_ids and seat.connected and not getattr(room, "closed", False)
             }
             for seat in room.seats
         ],

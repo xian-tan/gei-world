@@ -57,6 +57,7 @@ class UIClient:
         self.multiplayer_room_id = None
         self.multiplayer_sessions = {}
         self.active_multiplayer_client_id = None
+        self.notified_multiplayer_event_sequences = set()
         
         # 设置输入回调
         self._setup_input_callbacks()
@@ -82,6 +83,7 @@ class UIClient:
         self.multiplayer_room_id = None
         self.multiplayer_sessions = {}
         self.active_multiplayer_client_id = None
+        self.notified_multiplayer_event_sequences = set()
     
     def _setup_input_callbacks(self):
         """设置输入系统回调"""
@@ -792,6 +794,33 @@ class UIClient:
         if path:
             self.render_system.set_path_preview(path)
     
+    def _sync_multiplayer_room_notifications(self, room_state: Dict[str, Any]):
+        """根据房间事件提示关闭、离线和重连状态。"""
+        if not room_state:
+            return
+        for event in room_state.get("recent_events", []):
+            event_type = event.get("event_type")
+            if event_type not in {"player_left", "player_reconnected", "room_closed"}:
+                continue
+            sequence = event.get("sequence")
+            event_key = sequence if sequence is not None else (event_type, event.get("player_name"), event.get("message"))
+            if event_key in self.notified_multiplayer_event_sequences:
+                continue
+            self.notified_multiplayer_event_sequences.add(event_key)
+            player_name = event.get("player_name") or "对手"
+            active_seat = next(
+                (seat for seat in room_state.get("seats", [])
+                 if seat.get("client_id") == self.active_multiplayer_client_id),
+                None
+            )
+            is_self_event = bool(active_seat and active_seat.get("player_id") == event.get("player_id"))
+            if event_type == "room_closed":
+                self._notify(event.get("message") or room_state.get("close_reason") or "房间已关闭")
+            elif event_type == "player_left" and not is_self_event:
+                self._notify(f"{player_name} 已离线，等待其重连。")
+            elif event_type == "player_reconnected" and not is_self_event:
+                self._notify(f"{player_name} 已重新连接。")
+    
     def _get_multiplayer_status(self) -> Optional[Dict[str, Any]]:
         """获取多人房间状态摘要。"""
         if not self.multiplayer_room_id:
@@ -799,29 +828,43 @@ class UIClient:
         active_player_id = self.session.player_id if hasattr(self.session, 'player_id') else self.local_player_id
         view_response = None
         if self.multiplayer_server:
-            room_state = self.multiplayer_server.get_room_state(self.multiplayer_room_id)
-            if self.active_multiplayer_client_id:
-                view_response = self.multiplayer_server.get_player_view(
-                    self.multiplayer_room_id,
-                    self.active_multiplayer_client_id
-                )
+            try:
+                room_state = self.multiplayer_server.get_room_state(self.multiplayer_room_id)
+                if self.active_multiplayer_client_id and not room_state.get("closed"):
+                    view_response = self.multiplayer_server.get_player_view(
+                        self.multiplayer_room_id,
+                        self.active_multiplayer_client_id
+                    )
+            except KeyError as error:
+                room_state = {"room_id": self.multiplayer_room_id, "closed": True, "close_reason": str(error)}
         elif hasattr(self.session, 'http_client'):
             room_response = self.session.http_client.get_room_state(self.multiplayer_room_id)
-            room_state = room_response.get("room", {}) if room_response.get("success") else {}
-            view_response = self.session.get_player_view()
+            room_state = room_response.get("room", {}) if room_response.get("success") else room_response.get("room", {})
+            if not room_state:
+                room_state = {"room_id": self.multiplayer_room_id, "closed": False, "close_reason": room_response.get("message", "")}
+            if not room_state.get("closed"):
+                view_response = self.session.get_player_view()
         else:
             return None
+        self._sync_multiplayer_room_notifications(room_state)
         view = view_response.get("view") if view_response and view_response.get("success") else None
         visible_tile_count = 0
         explored_tile_count = 0
         if view:
             visible_tile_count = sum(1 for tile in view["tiles"].values() if tile.get("visible"))
             explored_tile_count = sum(1 for tile in view["tiles"].values() if tile.get("explored"))
+        offline_seats = [
+            seat for seat in room_state.get("seats", [])
+            if not seat.get("connected") and seat.get("client_id") != self.active_multiplayer_client_id
+        ]
         return {
             "room_id": self.multiplayer_room_id,
             "active_client_id": self.active_multiplayer_client_id,
             "active_player_id": active_player_id,
+            "closed": room_state.get("closed", False),
+            "close_reason": room_state.get("close_reason", ""),
             "seats": room_state.get("seats", []),
+            "offline_seats": offline_seats,
             "recent_events": room_state.get("recent_events", []),
             "visible_tile_count": visible_tile_count,
             "explored_tile_count": explored_tile_count,
@@ -836,6 +879,10 @@ class UIClient:
         selected_unit = self._find_unit_by_id(self.input_system.get_selected_unit_id()) if self.input_system.is_unit_selected() else None
         selected_city = self.ui_system.selected_city if self.ui_system.show_city_panel else None
         turn_status = self.session.get_turn_status()
+        multiplayer_status = self._get_multiplayer_status()
+        can_act = self._can_controlled_player_act()
+        if multiplayer_status and multiplayer_status.get("closed"):
+            can_act = False
         
         return {
             'current_player': controlled_player,
@@ -843,7 +890,7 @@ class UIClient:
             'turn_number': self.game_engine.turn_system.turn_number,
             'turn_mode': self.game_engine.turn_system.mode,
             'turn_status': turn_status,
-            'can_act': self._can_controlled_player_act(),
+            'can_act': can_act,
             'game_over': self.game_engine.game_over,
             'winner': self.game_engine.winner,
             'selected_coord': selected_coord,
@@ -851,7 +898,7 @@ class UIClient:
             'selected_unit': selected_unit,
             'selected_city': selected_city,
             'move_mode_active': self.move_mode_active,
-            'multiplayer_status': self._get_multiplayer_status()
+            'multiplayer_status': multiplayer_status
         }
     
     def _get_tile_at_screen_pos(self, screen_x: int, screen_y: int) -> Optional[HexCoord]:

@@ -50,13 +50,13 @@ def test_http_network_session_polls_view_and_turn_status():
 def test_http_network_session_leave_and_reconnect():
     http_server, host_session, guest_session = _start_http_sessions()
     try:
-        left = host_session.leave_room()
+        left = guest_session.leave_room()
         assert left["success"]
-        assert not left["room"]["seats"][0]["connected"]
-        reconnected = host_session.reconnect_room()
+        assert not left["room"]["seats"][1]["connected"]
+        reconnected = guest_session.reconnect_room()
         assert reconnected["success"]
-        assert reconnected["room"]["seats"][0]["connected"]
-        assert host_session.get_player_view()["success"]
+        assert reconnected["room"]["seats"][1]["connected"]
+        assert guest_session.get_player_view()["success"]
     finally:
         http_server.shutdown()
         http_server.server_close()
