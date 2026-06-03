@@ -255,8 +255,13 @@ class UISystem:
             marker = "*" if seat.get('player_id') == active_player_id else " "
             ended = "已结束" if seat.get('ended_turn') else "行动中"
             lines.append(f"{marker}{seat.get('player_name')}: {ended}")
+        recent_events = multiplayer_status.get('recent_events', [])[-2:]
+        for event in recent_events:
+            message = event.get('message') or event.get('event_type')
+            if message:
+                lines.append(f"事件: {message[:14]}")
         lines.append("TAB: 切换玩家视角")
-        for line in lines[:8]:
+        for line in lines[:10]:
             text = self.font_manager.render_text(line, 'small', COLORS['BLACK'])
             surface.blit(text, (panel_x + 10, y_offset))
             y_offset += 16

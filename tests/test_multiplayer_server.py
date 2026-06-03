@@ -68,6 +68,8 @@ def test_multiplayer_server_simultaneous_turn_flow():
     assert first["success"]
     assert player1.id in engine.turn_system.ended_player_ids
     assert engine.turn_system.current_turn == 1
+    assert first["room"]["recent_events"]
+    assert first["room"]["recent_events"][-1]["event_type"] == "turn_ended"
 
     second = server.submit_action(room_id, client2, serialize_action(GameAction(
         player_id=player2.id,

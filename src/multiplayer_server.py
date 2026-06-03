@@ -11,6 +11,7 @@ from .models import ActionResult, GameAction
 from .network_protocol import (
     deserialize_action,
     serialize_action_result,
+    serialize_event,
     serialize_player_view,
     serialize_room_state,
 )
@@ -36,6 +37,8 @@ class MultiplayerRoom:
     seats: List[PlayerSeat] = field(default_factory=list)
     engine: Optional[GameEngine] = None
     started: bool = False
+    event_log: List[Dict[str, object]] = field(default_factory=list)
+    next_event_sequence: int = 1
 
     def get_seat(self, client_id: str) -> Optional[PlayerSeat]:
         for seat in self.seats:
@@ -147,6 +150,7 @@ class MultiplayerServer:
             return self._action_response(room, seat, ActionResult(False, "无权操作该玩家"))
 
         result = room.engine.execute_action_with_result(action)
+        self._record_action_events(room, seat, result)
         return self._action_response(room, seat, result)
 
     def get_player_view(self, room_id: str, client_id: str) -> Dict[str, object]:
@@ -177,6 +181,24 @@ class MultiplayerServer:
     def get_client_player_id(self, room_id: str, client_id: str) -> Optional[str]:
         """获取客户端绑定的玩家 ID。"""
         return self._require_seat(self._get_room(room_id), client_id).player_id
+
+    def _record_action_events(self, room: MultiplayerRoom, seat: PlayerSeat,
+                              result: ActionResult):
+        """记录房间事件，供客户端轮询展示。"""
+        event_items = [serialize_event(event) for event in result.events]
+        if not event_items and result.message:
+            event_items = [{"event_type": "action_result", "message": result.message, "data": {}}]
+        for event in event_items:
+            room.event_log.append({
+                "sequence": room.next_event_sequence,
+                "player_id": seat.player_id,
+                "player_name": seat.player_name,
+                "event_type": event.get("event_type"),
+                "message": event.get("message", ""),
+                "data": event.get("data", {})
+            })
+            room.next_event_sequence += 1
+        room.event_log = room.event_log[-100:]
 
     def _action_response(self, room: MultiplayerRoom, seat: PlayerSeat,
                          result: ActionResult) -> Dict[str, object]:

@@ -657,6 +657,7 @@ class UIClient:
             "active_client_id": self.active_multiplayer_client_id,
             "active_player_id": active_player_id,
             "seats": room_state.get("seats", []),
+            "recent_events": room_state.get("recent_events", []),
             "visible_tile_count": visible_tile_count,
             "explored_tile_count": explored_tile_count,
         }
@@ -1111,6 +1112,13 @@ class UIClient:
         result = self._execute_action_and_notify(action)
         if result.success:
             self._clear_ui_selection_state()
+            turn_advanced = any(
+                event.event_type == "turn_advanced"
+                or event.data.get("turn_advanced")
+                for event in result.events
+            )
+            if self.multiplayer_room_id and not turn_advanced:
+                self._notify("等待其他玩家结束本回合。")
             if self.game_engine.turn_system.mode == "sequential":
                 self._process_ai_turns()
             else:

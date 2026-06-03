@@ -521,8 +521,10 @@ def test_local_multiplayer_ui_starts_and_switches_clients():
     assert status['visible_tile_count'] > 0
     client._handle_end_turn(force=True)
     assert not client._can_controlled_player_act()
+    assert any("等待其他玩家" in message for message in client.ui_system.messages)
     status = client._get_game_state()['multiplayer_status']
     assert status['seats'][0]['ended_turn']
+    assert status['recent_events']
     assert client._switch_multiplayer_client()
     guest_player = client._get_controlled_player()
     assert guest_player.id == "player_1"

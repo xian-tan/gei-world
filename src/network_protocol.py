@@ -101,7 +101,8 @@ def serialize_room_state(room) -> Dict[str, Any]:
                 "can_act": seat.player_id in actionable_player_ids
             }
             for seat in room.seats
-        ]
+        ],
+        "recent_events": list(getattr(room, "event_log", [])[-12:])
     }
 
 
