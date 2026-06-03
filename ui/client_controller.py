@@ -11,7 +11,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.insert(0, project_root)
 
-from src.game_engine import GameEngine
+from src.game_session import LocalGameSession
 from src.models import GameAction, ActionType, HexCoord, UnitType, Player
 from src.systems.ai_system import AIManager
 from src.systems.save_system import GameSaveSystem
@@ -34,8 +34,8 @@ class UIClient:
         pygame.display.set_caption("六边形策略游戏")
         self.clock = pygame.time.Clock()
         
-        # 游戏引擎
-        self.game_engine = GameEngine()
+        # 游戏会话
+        self.session = LocalGameSession()
         self.ai_manager = AIManager()
         self.save_system = GameSaveSystem()
         self.save_slots = [f"slot_{index}" for index in range(1, 6)]
@@ -58,6 +58,16 @@ class UIClient:
         # 设置UI回调
         self._setup_ui_callbacks()        # 字体管理器
         self.font_manager = get_font_manager()
+    
+    @property
+    def game_engine(self):
+        """兼容旧调用的引擎访问入口。"""
+        return self.session.engine
+    
+    @game_engine.setter
+    def game_engine(self, engine):
+        """兼容测试和存档加载流程的引擎替换入口。"""
+        self.session = LocalGameSession(engine)
     
     def _setup_input_callbacks(self):
         """设置输入系统回调"""
@@ -98,20 +108,16 @@ class UIClient:
     
     def _get_controlled_player(self) -> Optional[Player]:
         """获取当前 UI 视角下可操作/查看的玩家。"""
-        if self.game_engine.turn_system.mode == "simultaneous" and self.local_player_id:
-            player = self.game_engine.player_system.get_player_by_id(self.local_player_id)
-            if player:
-                return player
-        return self.game_engine.get_current_player()
+        return self.session.get_controlled_player(self.local_player_id)
     
     def _can_controlled_player_act(self) -> bool:
         """当前 UI 玩家是否还能在本回合行动。"""
         player = self._get_controlled_player()
-        return bool(player and self.game_engine.turn_system.can_player_act(player.id))
+        return bool(player and self.session.can_player_act(player.id))
     
     def _execute_action_and_notify(self, action: GameAction):
         """执行行动并显示引擎返回的结构化结果。"""
-        result = self.game_engine.execute_action_with_result(action)
+        result = self.session.submit_action(action)
         self._notify_action_result(result)
         return result
     
@@ -178,9 +184,9 @@ class UIClient:
     
     def start_game(self, player_names: list, map_seed: int = None, turn_mode: str = "sequential"):
         """开始游戏"""
-        new_engine = GameEngine(turn_mode=turn_mode)
-        if new_engine.initialize_game(player_names, map_seed, turn_mode=turn_mode):
-            self.game_engine = new_engine
+        new_session = LocalGameSession()
+        if new_session.start_game(player_names, map_seed, turn_mode=turn_mode):
+            self.session = new_session
             self.game_started = True
             self.local_player_id = self.game_engine.player_system.players[0].id if self.game_engine.player_system.players else None
             self._clear_ui_selection_state()
@@ -236,7 +242,7 @@ class UIClient:
                 actions_this_turn = 0
             
             if actions_this_turn >= per_ai_turn_limit:
-                result = self.game_engine.execute_action_with_result(GameAction(
+                result = self.session.submit_action(GameAction(
                     player_id=current_player.id,
                     action_type=ActionType.END_TURN,
                     params={}
@@ -254,14 +260,14 @@ class UIClient:
                     params={}
                 )
             
-            result = self.game_engine.execute_action_with_result(action)
+            result = self.session.submit_action(action)
             actions_taken += 1
             actions_this_turn += 1
             self._notify_action_result(result, current_player.name)
             if action.action_type == ActionType.END_TURN:
                 actions_this_turn = 0
             elif not result.success:
-                result = self.game_engine.execute_action_with_result(GameAction(
+                result = self.session.submit_action(GameAction(
                     player_id=current_player.id,
                     action_type=ActionType.END_TURN,
                     params={}
@@ -273,7 +279,7 @@ class UIClient:
         current_player = self.game_engine.get_current_player()
         if (not self.game_engine.game_over and current_player and
                 self.ai_manager.is_ai_player(current_player.id)):
-            result = self.game_engine.execute_action_with_result(GameAction(
+            result = self.session.submit_action(GameAction(
                 player_id=current_player.id,
                 action_type=ActionType.END_TURN,
                 params={}
@@ -333,8 +339,8 @@ class UIClient:
             
             # 渲染地图
             view_player = self._get_controlled_player()
-            visible_tiles = self.game_engine.vision_system.get_visible_tiles(view_player.id) if view_player else set()
-            explored_tiles = self.game_engine.vision_system.get_explored_tiles(view_player.id) if view_player else set()
+            visible_tiles = self.session.get_visible_tiles(view_player.id) if view_player else set()
+            explored_tiles = self.session.get_explored_tiles(view_player.id) if view_player else set()
             
             self._update_hover_path_preview(visible_tiles)
             self.render_system.render_map(
@@ -412,7 +418,7 @@ class UIClient:
         selected_tile = self.game_engine.map_tiles.get(selected_coord) if selected_coord else None
         selected_unit = self._find_unit_by_id(self.input_system.get_selected_unit_id()) if self.input_system.is_unit_selected() else None
         selected_city = self.ui_system.selected_city if self.ui_system.show_city_panel else None
-        turn_status = self.game_engine.turn_system.get_turn_status()
+        turn_status = self.session.get_turn_status()
         
         return {
             'current_player': controlled_player,
@@ -795,7 +801,7 @@ class UIClient:
                 'quantity': quantity
             }
         )
-        result = self.game_engine.execute_action_with_result(action)
+        result = self.session.submit_action(action)
         if result.success and quantity > 1 and unit_type == UnitType.SOLDIER:
             self._notify(f"生产士兵 {quantity} 名")
         else:
@@ -937,7 +943,7 @@ class UIClient:
                 self._notify(f"加载失败：未找到 {save_name}.json")
                 return
             
-            self.game_engine = loaded_engine
+            self.session = LocalGameSession(loaded_engine)
             self.game_started = True
             if not self.game_engine.player_system.get_player_by_id(self.local_player_id):
                 self.local_player_id = self.game_engine.player_system.players[0].id if self.game_engine.player_system.players else None
