@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Protocol, Set
 
 from .game_engine import GameEngine
 from .models import ActionResult, GameAction, GameState, HexCoord, Player
+from .network_protocol import deserialize_action_result, serialize_action
 from .systems.turn_system import TurnSystem
 
 
@@ -99,3 +100,62 @@ class LocalGameSession:
 
     def get_explored_tiles(self, player_id: str) -> Set[HexCoord]:
         return self._engine.vision_system.get_explored_tiles(player_id)
+
+
+class NetworkGameSession:
+    """进程内网络会话骨架，通过 MultiplayerServer 访问服务端权威引擎。"""
+
+    def __init__(self, server, room_id: str, client_id: str):
+        self.server = server
+        self.room_id = room_id
+        self.client_id = client_id
+
+    @property
+    def engine(self) -> GameEngine:
+        """当前进程内服务端权威引擎；真实网络版可替换为只读镜像。"""
+        engine = self.server.get_room_engine(self.room_id)
+        return engine or GameEngine()
+
+    @property
+    def player_id(self) -> Optional[str]:
+        """当前客户端绑定的玩家 ID。"""
+        return self.server.get_client_player_id(self.room_id, self.client_id)
+
+    def start_game(self, player_names: List[str] = None, map_seed: int = None,
+                   turn_mode: str = TurnSystem.MODE_SIMULTANEOUS) -> bool:
+        """启动当前房间。player_names 由房间席位决定，参数仅用于兼容接口。"""
+        response = self.server.start_room(self.room_id, map_seed=map_seed, turn_mode=turn_mode)
+        return bool(response.get("success"))
+
+    def submit_action(self, action: GameAction) -> ActionResult:
+        response = self.server.submit_action(self.room_id, self.client_id, serialize_action(action))
+        return deserialize_action_result(response["result"])
+
+    def get_turn_status(self) -> Dict[str, object]:
+        engine = self.server.get_room_engine(self.room_id)
+        return engine.turn_system.get_turn_status() if engine else {}
+
+    def get_controlled_player(self, local_player_id: str = None) -> Optional[Player]:
+        engine = self.server.get_room_engine(self.room_id)
+        player_id = local_player_id or self.player_id
+        return engine.player_system.get_player_by_id(player_id) if engine and player_id else None
+
+    def can_player_act(self, player_id: str) -> bool:
+        engine = self.server.get_room_engine(self.room_id)
+        return bool(engine and engine.turn_system.can_player_act(player_id))
+
+    def get_visible_state(self, player_id: str) -> Optional[GameState]:
+        engine = self.server.get_room_engine(self.room_id)
+        return engine.get_visible_state(player_id) if engine else None
+
+    def get_visible_tiles(self, player_id: str) -> Set[HexCoord]:
+        engine = self.server.get_room_engine(self.room_id)
+        return engine.vision_system.get_visible_tiles(player_id) if engine else set()
+
+    def get_explored_tiles(self, player_id: str) -> Set[HexCoord]:
+        engine = self.server.get_room_engine(self.room_id)
+        return engine.vision_system.get_explored_tiles(player_id) if engine else set()
+
+    def get_player_view(self) -> Dict[str, object]:
+        """获取服务端返回的当前玩家安全视图。"""
+        return self.server.get_player_view(self.room_id, self.client_id)

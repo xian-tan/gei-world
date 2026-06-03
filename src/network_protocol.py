@@ -54,12 +54,50 @@ def serialize_event(event: ActionEvent) -> Dict[str, Any]:
     }
 
 
+def deserialize_event(data: Dict[str, Any]) -> ActionEvent:
+    """反序列化行动事件。"""
+    return ActionEvent(
+        event_type=data["event_type"],
+        message=data.get("message", ""),
+        data=dict(data.get("data") or {})
+    )
+
+
 def serialize_action_result(result: ActionResult) -> Dict[str, Any]:
     """序列化行动结果。"""
     return {
         "success": result.success,
         "message": result.message,
         "events": [serialize_event(event) for event in result.events]
+    }
+
+
+def deserialize_action_result(data: Dict[str, Any]) -> ActionResult:
+    """反序列化行动结果。"""
+    return ActionResult(
+        success=bool(data.get("success")),
+        message=data.get("message", ""),
+        events=[deserialize_event(event) for event in data.get("events", [])]
+    )
+
+
+def serialize_room_state(room) -> Dict[str, Any]:
+    """序列化房间状态。"""
+    return {
+        "room_id": room.room_id,
+        "started": room.started,
+        "max_players": room.max_players,
+        "turn_mode": room.turn_mode,
+        "map_seed": room.map_seed,
+        "seats": [
+            {
+                "client_id": seat.client_id,
+                "player_name": seat.player_name,
+                "player_id": seat.player_id,
+                "connected": seat.connected
+            }
+            for seat in room.seats
+        ]
     }
 
 
