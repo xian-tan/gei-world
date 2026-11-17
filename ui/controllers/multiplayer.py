@@ -1,23 +1,30 @@
 """
-多人：本机/HTTP 房间流程、视角切换、离开重连与状态轮询。
+多人：HTTP 房间（创建 / 加入 / 重新连接 / 房主等待大厅）、本机双客户端调试房、视角切换、离开与状态轮询。
 """
 import os
 import time
 from typing import Any, Dict, Optional
 
-
 from src.game_session import HTTPNetworkSession, LocalGameSession, NetworkGameSession
 from src.http_multiplayer import HTTPMultiplayerClient
 from src.multiplayer_server import MultiplayerServer
 from src.systems.ai_system import AIManager
+from ui.controllers.menu import MAP_TYPE_OPTIONS, TURN_MODE_OPTIONS, is_dev_mode
+from ui.identity_store import IdentityStore
 from ui.ui_config import COLORS
 
 
 class MultiplayerMixin:
-    """多人：本机/HTTP 房间流程、视角切换、离开重连与状态轮询。"""
+    """多人房间流程。"""
+
+    # ------------------------------------------------------------------ 公共
+    @property
+    def identity_store(self) -> IdentityStore:
+        if getattr(self, "_identity_store", None) is None:
+            self._identity_store = IdentityStore()
+        return self._identity_store
 
     def _clear_multiplayer_context(self):
-        """清理进程内多人房间上下文。"""
         self.multiplayer_server = None
         self.multiplayer_room_id = None
         self.multiplayer_sessions = {}
@@ -25,181 +32,242 @@ class MultiplayerMixin:
         self.notified_multiplayer_event_sequences = set()
         self._invalidate_multiplayer_status()
 
+    def _get_http_base_url(self) -> str:
+        return os.environ.get("GEI_WORLD_HTTP_URL", "http://127.0.0.1:8000")
+
+    def _enter_multiplayer_game(self, room_id: str, sessions: Dict[str, Any], active_client_id: str,
+                                server: Optional[MultiplayerServer] = None):
+        self.multiplayer_server = server
+        self.multiplayer_room_id = room_id
+        self.multiplayer_sessions = sessions
+        self.ai_manager = AIManager()
+        self.human_player_ids = []
+        self.pending_host_room = None
+        self.game_started = True
+        self._activate_multiplayer_client(active_client_id, notify=False)
+        self.camera_system.zoom = 1.6
+        self._focus_on_player(self._get_controlled_player())
+        self.ui_system.close_modal()
+        self.ui_system.show_banner(f"房间 {room_id} · 对局开始")
+
+    def _remember_http_room_info(self, base_url: str, room_id: str, client_id: str, player_name: str = ""):
+        """记住最近房间与本机身份，供重新连接使用。"""
+        self.last_http_room_info = {"base_url": base_url, "room_id": room_id, "client_id": client_id}
+        self.identity_store.remember(base_url, room_id, client_id, player_name)
+        if self.ui_system.has_active_modal():
+            self.ui_system.set_modal_input_value("base_url", base_url)
+            self.ui_system.set_modal_input_value("room_id", room_id)
+
+    # ------------------------------------------------------------------ 本机调试
     def _start_local_multiplayer(self, turn_mode: str = "simultaneous", map_seed: int = 123):
-        """启动进程内本机双人多人房间。"""
+        """进程内双客户端房间（调试/热座演示），TAB 切换视角。"""
         server = MultiplayerServer()
         created = server.create_room("玩家1", max_players=2, turn_mode=turn_mode, map_seed=map_seed)
         room_id = created["room"]["room_id"]
         host_client_id = created["client_id"]
-        joined = server.join_room(room_id, "玩家2")
-        guest_client_id = joined["client_id"]
+        guest_client_id = server.join_room(room_id, "玩家2")["client_id"]
         host_session = NetworkGameSession(server, room_id, host_client_id)
         if not host_session.start_game(turn_mode=turn_mode):
             self._notify("本机多人房间启动失败")
             return False
-        guest_session = NetworkGameSession(server, room_id, guest_client_id)
-        self.multiplayer_server = server
-        self.multiplayer_room_id = room_id
-        self.multiplayer_sessions = {
-            host_client_id: host_session,
-            guest_client_id: guest_session,
-        }
-        self.ai_manager = AIManager()
-        self.game_started = True
-        self._activate_multiplayer_client(host_client_id, notify=False)
-        self._center_camera_on_map()
-        self.ui_system.close_modal()
-        self._notify(f"本机多人房间已开始：{turn_mode}")
-        self._notify("按 TAB 在玩家1/玩家2视角间切换。")
+        sessions = {host_client_id: host_session, guest_client_id: NetworkGameSession(server, room_id, guest_client_id)}
+        self._enter_multiplayer_game(room_id, sessions, host_client_id, server)
+        self._notify(f"本机双客户端房间已开始（{turn_mode}），按 TAB 切换视角。")
         return True
 
-    def _get_http_base_url(self) -> str:
-        """获取 HTTP 多人服务地址；可用环境变量覆盖。"""
-        return os.environ.get("GEI_WORLD_HTTP_URL", "http://127.0.0.1:8000")
+    def _show_local_multiplayer_modal(self):
+        self.ui_system.show_modal(
+            "本机双客户端（调试）",
+            ["创建进程内双人房间，开始后按 TAB 在两个玩家视角间切换。"],
+            [
+                {'text': "轮流回合", 'callback': lambda: self._start_local_multiplayer("sequential"), 'color': COLORS['ACCENT']},
+                {'text': "同时回合", 'callback': lambda: self._start_local_multiplayer("simultaneous"), 'color': COLORS['SUCCESS']},
+                {'text': "取消", 'callback': self.ui_system.close_modal},
+            ]
+        )
 
-    def _start_http_multiplayer(self, base_url: str = None,
-                                turn_mode: str = "simultaneous", map_seed: int = 123):
-        """连接 HTTP 多人服务并创建调试双人房间。"""
+    def _start_http_multiplayer(self, base_url: str = None, turn_mode: str = "simultaneous", map_seed: int = 123):
+        """HTTP 调试房：一个客户端同时占两个席位（仅开发模式入口）。"""
         base_url = base_url or self._get_http_base_url()
-        try:
-            http_client = HTTPMultiplayerClient(base_url, timeout=1.5)
-            created = http_client.create_room("玩家1", max_players=2, turn_mode=turn_mode, map_seed=map_seed)
-            if not created.get("success"):
-                self._notify(f"HTTP 多人创建失败：{created.get('message', '未知错误')}")
-                return False
-            room_id = created["room"]["room_id"]
-            host_client_id = created["client_id"]
-            joined = http_client.join_room(room_id, "玩家2")
-            if not joined.get("success"):
-                self._notify(f"HTTP 多人加入失败：{joined.get('message', '未知错误')}")
-                return False
-            guest_client_id = joined["client_id"]
-            host_session = HTTPNetworkSession(http_client, room_id, host_client_id)
-            if not host_session.start_game(turn_mode=turn_mode):
-                self._notify("HTTP 多人房间启动失败")
-                return False
-            guest_session = HTTPNetworkSession(http_client, room_id, guest_client_id)
-        except Exception as error:
-            self._notify(f"HTTP 多人连接失败：{error}")
+        http_client = HTTPMultiplayerClient(base_url, timeout=1.5)
+        created = http_client.create_room("玩家1", max_players=2, turn_mode=turn_mode, map_seed=map_seed)
+        if not created.get("success"):
+            self._notify(f"创建房间失败：{created.get('message', '未知错误')}")
             return False
-        self._remember_http_room_info(base_url, room_id, host_client_id)
-        self.multiplayer_server = None
-        self.multiplayer_room_id = room_id
-        self.multiplayer_sessions = {
-            host_client_id: host_session,
-            guest_client_id: guest_session,
-        }
-        self.ai_manager = AIManager()
-        self.game_started = True
-        self._activate_multiplayer_client(host_client_id, notify=False)
-        self._center_camera_on_map()
-        self.ui_system.close_modal()
-        self._notify(f"HTTP 多人房间已开始：{turn_mode}")
-        self._notify("按 TAB 在玩家1/玩家2视角间切换。")
+        room_id = created["room"]["room_id"]
+        host_client_id = created["client_id"]
+        joined = http_client.join_room(room_id, "玩家2")
+        if not joined.get("success"):
+            self._notify(f"加入房间失败：{joined.get('message', '未知错误')}")
+            return False
+        host_session = HTTPNetworkSession(http_client, room_id, host_client_id)
+        if not host_session.start_game(turn_mode=turn_mode):
+            self._notify("房间启动失败")
+            return False
+        sessions = {host_client_id: host_session,
+                    joined["client_id"]: HTTPNetworkSession(http_client, room_id, joined["client_id"])}
+        self._remember_http_room_info(base_url, room_id, host_client_id, "玩家1")
+        self._enter_multiplayer_game(room_id, sessions, host_client_id)
+        self._notify("HTTP 调试房已开始，按 TAB 切换视角。")
         return True
 
-    def _create_http_room(self, base_url: str = None, turn_mode: str = "simultaneous",
-                          map_seed: int = 123, host_name: str = "玩家1"):
-        """创建 HTTP 房间但不立即开始，供另一客户端按房间号加入。"""
+    # ------------------------------------------------------------------ HTTP 表单
+    def _get_http_form_values(self) -> Dict[str, Any]:
+        values = self.ui_system.get_modal_input_values()
+        values.setdefault("base_url", self.last_http_room_info.get("base_url") or self._get_http_base_url())
+        values.setdefault("room_id", self.last_http_room_info.get("room_id", ""))
+        values.setdefault("turn_mode", "simultaneous")
+        values["room_id"] = str(values.get("room_id", "")).strip().upper()
+        values["base_url"] = str(values.get("base_url", "")).strip() or self._get_http_base_url()
+        return values
+
+    def _show_http_multiplayer_modal(self):
+        """多人联机：创建房间 / 加入房间 / 重新连接。"""
+        latest = self.identity_store.latest() or {}
+        base_url = self.last_http_room_info.get("base_url") or latest.get("base_url") or self._get_http_base_url()
+        room_id = self.last_http_room_info.get("room_id") or latest.get("room_id", "")
+        lines = ["房主点击「创建房间」后把房间码发给对手；对手填写房间码后点击「加入房间」。"]
+        if room_id:
+            lines.append(f"最近房间：{room_id}（断线后可直接「重新连接」）")
+
+        def form():
+            return self._get_http_form_values()
+
+        actions = [
+            {'text': "创建房间", 'color': COLORS['SUCCESS'], 'callback': lambda: self._create_http_room(
+                base_url=form()["base_url"], turn_mode=form().get("turn_mode", "simultaneous"),
+                map_seed=None, host_name=form().get("player_name") or "房主",
+                map_type=form().get("map_type"), password=form().get("password") or None)},
+            {'text': "加入房间", 'color': COLORS['ACCENT'], 'callback': lambda: self._join_http_multiplayer_room(
+                base_url=form()["base_url"], room_id=form()["room_id"],
+                player_name=form().get("player_name") or "挑战者", password=form().get("password") or None)},
+            {'text': "重新连接", 'callback': lambda: self._connect_http_multiplayer_existing(
+                base_url=form()["base_url"], room_id=form()["room_id"], player_name=form().get("player_name", ""))},
+        ]
+        if is_dev_mode():
+            actions.append({'text': "调试双席位房", 'callback': lambda: self._start_http_multiplayer(
+                base_url=form()["base_url"], turn_mode=form().get("turn_mode", "simultaneous"))})
+        actions.append({'text': "取消", 'callback': self.ui_system.close_modal})
+        self.ui_system.show_modal("多人联机", lines, actions, inputs=[
+            {"key": "base_url", "label": "服务地址", "value": base_url},
+            {"key": "player_name", "label": "你的名字", "value": latest.get("player_name") or "玩家"},
+            {"key": "room_id", "label": "房间码", "value": room_id},
+            {"key": "password", "label": "房间密码（可选）", "value": ""},
+            {"key": "turn_mode", "label": "回合模式（房主）", "value": "simultaneous", "options": TURN_MODE_OPTIONS},
+            {"key": "map_type", "label": "地图类型（房主）", "value": "continents", "options": MAP_TYPE_OPTIONS},
+        ])
+
+    # ------------------------------------------------------------------ HTTP 房间流程
+    def _create_http_room(self, base_url: str = None, turn_mode: str = "simultaneous", map_seed: int = None,
+                          host_name: str = "房主", map_type: str = None, password: str = None):
+        """创建房间并进入等待大厅；对手加入后自动开局。"""
         base_url = base_url or self._get_http_base_url()
         response = HTTPMultiplayerClient(base_url, timeout=1.5).create_room(
-            host_name,
-            max_players=2,
-            turn_mode=turn_mode,
-            map_seed=map_seed
-        )
+            host_name, max_players=2, turn_mode=turn_mode, map_seed=map_seed, map_type=map_type, password=password)
         if not response.get("success"):
-            self._notify(f"创建 HTTP 房间失败：{response.get('message', '未知错误')}")
+            self._notify(f"创建房间失败：{response.get('message', '未知错误')}")
             return None
         room_id = response["room"]["room_id"]
         client_id = response["client_id"]
-        self._remember_http_room_info(base_url, room_id, client_id)
-        if self.ui_system.has_active_modal():
-            self.ui_system.active_modal['lines'] = [
-                "HTTP 等待房已创建，请记录以下信息。",
-                f"房间ID: {room_id}",
-                f"客户端ID: {client_id}",
-                "另一客户端加入后，房主可用这些信息重连。"
-            ]
-        self._notify(f"HTTP 房间已创建：{room_id}，客户端：{client_id}")
-        self._notify("另一客户端可用房间号加入；房主可稍后重连。")
+        self._remember_http_room_info(base_url, room_id, client_id, host_name)
+        self.pending_host_room = {"base_url": base_url, "room_id": room_id, "client_id": client_id}
+        self._pending_poll_time = 0.0
+        self.ui_system.show_modal(
+            "等待对手加入",
+            [f"房间码：{room_id}", f"服务地址：{base_url}",
+             "把房间码（和密码）发给对手，对方加入后自动开局。"],
+            [{'text': "取消房间", 'color': COLORS['DANGER'], 'callback': self._cancel_pending_host_room}],
+        )
+        self._notify(f"房间已创建：{room_id}，等待对手加入。")
         return response
 
-    def _remember_http_room_info(self, base_url: str, room_id: str, client_id: str):
-        """记录并回填最近 HTTP 房间信息。"""
-        self.last_http_room_info = {
-            "base_url": base_url,
-            "room_id": room_id,
-            "client_id": client_id,
-        }
-        if self.ui_system.has_active_modal():
-            self.ui_system.set_modal_input_value("base_url", base_url)
-            self.ui_system.set_modal_input_value("room_id", room_id)
-            self.ui_system.set_modal_input_value("client_id", client_id)
+    def _poll_pending_host_room(self, force: bool = False) -> bool:
+        """房主等待大厅：对手加入且房间开始后自动进入对局。"""
+        pending = getattr(self, "pending_host_room", None)
+        if not pending or self.game_started:
+            return False
+        now = time.monotonic()
+        if not force and now - self._pending_poll_time < self.multiplayer_poll_interval:
+            return False
+        self._pending_poll_time = now
+        response = HTTPMultiplayerClient(pending["base_url"], timeout=1.5).get_room_state(pending["room_id"])
+        room = response.get("room") or {}
+        if not response.get("success"):
+            self._notify(f"等待房间失败：{response.get('message', '未知错误')}")
+            self.pending_host_room = None
+            self.ui_system.close_modal()
+            return False
+        if room.get("closed"):
+            self._notify(room.get("close_reason") or "房间已关闭")
+            self.pending_host_room = None
+            self.ui_system.close_modal()
+            return False
+        if room.get("started"):
+            host_name = next((seat.get("player_name") for seat in room.get("seats", [])
+                              if seat.get("client_id") == pending["client_id"]), "")
+            return self._connect_http_multiplayer_existing(pending["base_url"], pending["room_id"],
+                                                           pending["client_id"], host_name)
+        return False
 
-    def _join_http_multiplayer_room(self, base_url: str = None, room_id: str = None,
-                                    player_name: str = "玩家2", turn_mode: str = None,
-                                    map_seed: int = None):
-        """加入已有 HTTP 房间；满 2 人后尝试启动房间并进入游戏。"""
+    def _cancel_pending_host_room(self):
+        pending = getattr(self, "pending_host_room", None)
+        if pending:
+            HTTPMultiplayerClient(pending["base_url"], timeout=1.5).leave_room(pending["room_id"], pending["client_id"])
+        self.pending_host_room = None
+        self.ui_system.close_modal()
+        self._notify("已取消房间。")
+
+    def _join_http_multiplayer_room(self, base_url: str = None, room_id: str = None, player_name: str = "挑战者",
+                                    turn_mode: str = None, map_seed: int = None, password: str = None):
+        """加入房间；满员后按房主设置开局并进入对局。"""
         base_url = base_url or self._get_http_base_url()
-        room_id = room_id or os.environ.get("GEI_WORLD_ROOM_ID")
-        player_name = os.environ.get("GEI_WORLD_PLAYER_NAME", player_name)
+        room_id = (room_id or os.environ.get("GEI_WORLD_ROOM_ID") or "").strip().upper()
         if not room_id:
-            self._notify("缺少房间号：请设置 GEI_WORLD_ROOM_ID。")
+            self._notify("缺少房间号：请输入房主提供的房间码。")
             return False
         http_client = HTTPMultiplayerClient(base_url, timeout=1.5)
-        joined = http_client.join_room(room_id, player_name)
+        joined = http_client.join_room(room_id, player_name, password=password)
         if not joined.get("success"):
-            self._notify(f"加入 HTTP 房间失败：{joined.get('message', '未知错误')}")
+            self._notify(f"加入房间失败：{joined.get('message', '未知错误')}")
             return False
         client_id = joined["client_id"]
+        self._remember_http_room_info(base_url, room_id, client_id, player_name)
         start_response = http_client.start_room(room_id, map_seed=map_seed, turn_mode=turn_mode)
         if not start_response.get("success"):
-            self._notify(f"加入成功但房间未开始：{start_response.get('message', '等待房主开始')}")
+            self._notify(f"已加入，等待开局：{start_response.get('message', '等待房主开始')}")
             return False
         session = HTTPNetworkSession(http_client, room_id, client_id)
         session.get_player_view()
-        self._remember_http_room_info(base_url, room_id, client_id)
-        self.multiplayer_server = None
-        self.multiplayer_room_id = room_id
-        self.multiplayer_sessions = {client_id: session}
-        self.ai_manager = AIManager()
-        self.game_started = True
-        self._activate_multiplayer_client(client_id, notify=False)
-        self._center_camera_on_map()
-        self.ui_system.close_modal()
-        self._notify(f"已加入 HTTP 房间：{room_id}，客户端：{client_id}")
+        self._enter_multiplayer_game(room_id, {client_id: session}, client_id)
+        self._notify(f"已加入房间 {room_id}。")
         return True
 
-    def _connect_http_multiplayer_existing(self, base_url: str = None, room_id: str = None,
-                                           client_id: str = None):
-        """使用已有 room_id/client_id 连接已开始的 HTTP 房间。"""
+    def _connect_http_multiplayer_existing(self, base_url: str = None, room_id: str = None, client_id: str = None,
+                                           player_name: str = ""):
+        """用本机记住的身份重新连接已开始的房间。"""
         base_url = base_url or self._get_http_base_url()
-        room_id = room_id or os.environ.get("GEI_WORLD_ROOM_ID")
-        client_id = client_id or os.environ.get("GEI_WORLD_CLIENT_ID")
+        room_id = (room_id or os.environ.get("GEI_WORLD_ROOM_ID") or "").strip().upper()
+        if room_id and not client_id:
+            identity = self.identity_store.lookup(base_url, room_id, player_name) or {}
+            player_name = player_name or identity.get("player_name", "")
+            client_id = identity.get("client_id") or os.environ.get("GEI_WORLD_CLIENT_ID")
         if not room_id or not client_id:
-            self._notify("缺少房间号或客户端ID：请设置 GEI_WORLD_ROOM_ID / GEI_WORLD_CLIENT_ID。")
+            self._notify("缺少房间号或客户端ID：本机没有该房间的身份记录，请确认服务地址和房间码。")
             return False
         http_client = HTTPMultiplayerClient(base_url, timeout=1.5)
         session = HTTPNetworkSession(http_client, room_id, client_id)
+        http_client.reconnect_room(room_id, client_id)
         view_response = session.get_player_view()
         if not view_response.get("success"):
-            self._notify(f"连接 HTTP 房间失败：{view_response.get('message', '未知错误')}")
+            self._notify(f"连接房间失败：{view_response.get('message', '未知错误')}")
             return False
-        self._remember_http_room_info(base_url, room_id, client_id)
-        self.multiplayer_server = None
-        self.multiplayer_room_id = room_id
-        self.multiplayer_sessions = {client_id: session}
-        self.ai_manager = AIManager()
-        self.game_started = True
-        self._activate_multiplayer_client(client_id, notify=False)
-        self._center_camera_on_map()
-        self.ui_system.close_modal()
-        self._notify(f"已连接 HTTP 房间：{room_id}，客户端：{client_id}")
+        self._remember_http_room_info(base_url, room_id, client_id, player_name)
+        self._enter_multiplayer_game(room_id, {client_id: session}, client_id)
+        self._notify(f"已连接房间 {room_id}。")
         return True
 
+    # ------------------------------------------------------------------ 视角 / 离开
     def _activate_multiplayer_client(self, client_id: str, notify: bool = True) -> bool:
-        """切换当前 UI 到指定多人客户端。"""
         session = self.multiplayer_sessions.get(client_id)
         if not session:
             return False
@@ -214,8 +282,7 @@ class MultiplayerMixin:
         return True
 
     def _switch_multiplayer_client(self) -> bool:
-        """在本机多人客户端之间切换。"""
-        if not self.multiplayer_sessions:
+        if len(self.multiplayer_sessions) < 2:
             return False
         client_ids = list(self.multiplayer_sessions.keys())
         if self.active_multiplayer_client_id not in client_ids:
@@ -224,7 +291,6 @@ class MultiplayerMixin:
         return self._activate_multiplayer_client(client_ids[next_index])
 
     def _leave_multiplayer_room(self):
-        """离开当前多人房间并回到开始界面。"""
         if hasattr(self.session, 'leave_room'):
             response = self.session.leave_room()
             if not response.get("success"):
@@ -242,139 +308,21 @@ class MultiplayerMixin:
         return True
 
     def _show_leave_multiplayer_modal(self):
-        """显示离开多人房间确认。"""
         self.ui_system.show_modal(
             "离开多人房间",
-            ["确定要离开当前多人房间吗？"],
+            ["确定要离开当前房间吗？普通玩家离开后可重新连接；房主离开会关闭房间。"],
             [
-                {
-                    'text': "继续游戏",
-                    'callback': self.ui_system.close_modal,
-                    'color': COLORS['LIGHT_GRAY'],
-                    'text_color': COLORS['BLACK']
-                },
-                {
-                    'text': "离开房间",
-                    'callback': self._leave_multiplayer_room,
-                    'color': COLORS['RED'],
-                    'text_color': COLORS['WHITE']
-                }
+                {'text': "继续游戏", 'callback': self.ui_system.close_modal},
+                {'text': "离开房间", 'callback': self._leave_multiplayer_room, 'color': COLORS['DANGER']},
             ]
         )
 
-    def _show_local_multiplayer_modal(self):
-        """显示本机多人模式选择。"""
-        self.ui_system.show_modal(
-            "本机多人原型",
-            ["创建一个进程内双人房间。", "开始后按 TAB 在两个玩家视角间切换。"],
-            [
-                {
-                    'text': "轮流回合多人",
-                    'callback': lambda: self._start_local_multiplayer("sequential"),
-                    'color': COLORS['BLUE'],
-                    'text_color': COLORS['WHITE']
-                },
-                {
-                    'text': "同时回合多人",
-                    'callback': lambda: self._start_local_multiplayer("simultaneous"),
-                    'color': COLORS['GREEN'],
-                    'text_color': COLORS['WHITE']
-                },
-                {
-                    'text': "取消",
-                    'callback': self.ui_system.close_modal,
-                    'color': COLORS['LIGHT_GRAY'],
-                    'text_color': COLORS['BLACK']
-                }
-            ]
-        )
-
-    def _get_http_form_values(self) -> Dict[str, str]:
-        values = self.ui_system.get_modal_input_values()
-        values.setdefault("base_url", self.last_http_room_info.get("base_url") or self._get_http_base_url())
-        values.setdefault("room_id", self.last_http_room_info.get("room_id", ""))
-        values.setdefault("client_id", self.last_http_room_info.get("client_id", ""))
-        values.setdefault("turn_mode", os.environ.get("GEI_WORLD_TURN_MODE", "simultaneous"))
-        return values
-
-    def _show_http_multiplayer_modal(self):
-        """显示 HTTP 多人模式选择。"""
-        base_url = self.last_http_room_info.get("base_url") or self._get_http_base_url()
-        room_id = os.environ.get("GEI_WORLD_ROOM_ID") or self.last_http_room_info.get("room_id", "")
-        client_id = os.environ.get("GEI_WORLD_CLIENT_ID") or self.last_http_room_info.get("client_id", "")
-        lines = ["填写服务/房间信息；TAB 切换输入框。"]
-        if room_id or client_id:
-            lines.extend([
-                f"最近房间ID: {room_id or '无'}",
-                f"最近客户端ID: {client_id or '无'}"
-            ])
-        self.ui_system.show_modal(
-            "HTTP 多人原型",
-            lines,
-            [
-                {
-                    'text': "创建调试房",
-                    'callback': lambda: self._start_http_multiplayer(
-                        base_url=self._get_http_form_values().get("base_url"),
-                        turn_mode=self._get_http_form_values().get("turn_mode", "simultaneous")
-                    ),
-                    'color': COLORS['GREEN'],
-                    'text_color': COLORS['WHITE']
-                },
-                {
-                    'text': "仅创建等待房",
-                    'callback': lambda: self._create_http_room(
-                        base_url=self._get_http_form_values().get("base_url"),
-                        turn_mode=self._get_http_form_values().get("turn_mode", "simultaneous"),
-                        host_name=self._get_http_form_values().get("player_name", "玩家1") or "玩家1"
-                    ),
-                    'color': COLORS['ORANGE'],
-                    'text_color': COLORS['BLACK']
-                },
-                {
-                    'text': "加入房间",
-                    'callback': lambda: self._join_http_multiplayer_room(
-                        base_url=self._get_http_form_values().get("base_url"),
-                        room_id=self._get_http_form_values().get("room_id"),
-                        player_name=self._get_http_form_values().get("player_name", "玩家2") or "玩家2",
-                        turn_mode=self._get_http_form_values().get("turn_mode") or None
-                    ),
-                    'color': COLORS['PURPLE'],
-                    'text_color': COLORS['WHITE']
-                },
-                {
-                    'text': "重连房间",
-                    'callback': lambda: self._connect_http_multiplayer_existing(
-                        base_url=self._get_http_form_values().get("base_url"),
-                        room_id=self._get_http_form_values().get("room_id"),
-                        client_id=self._get_http_form_values().get("client_id")
-                    ),
-                    'color': COLORS['BLUE'],
-                    'text_color': COLORS['WHITE']
-                },
-                {
-                    'text': "取消",
-                    'callback': self.ui_system.close_modal,
-                    'color': COLORS['LIGHT_GRAY'],
-                    'text_color': COLORS['BLACK']
-                }
-            ],
-            inputs=[
-                {"key": "base_url", "label": "服务地址", "value": base_url},
-                {"key": "room_id", "label": "房间ID", "value": room_id},
-                {"key": "client_id", "label": "客户端ID", "value": client_id},
-                {"key": "player_name", "label": "玩家名", "value": os.environ.get("GEI_WORLD_PLAYER_NAME", "玩家2")},
-                {"key": "turn_mode", "label": "回合模式", "value": os.environ.get("GEI_WORLD_TURN_MODE", "simultaneous")},
-            ]
-        )
-
-    def _sync_multiplayer_room_notifications(self, room_state: Dict[str, Any]):
+    # ------------------------------------------------------------------ 状态轮询
+    def _sync_multiplayer_room_notifications(self, room_state: Dict[str, Any], active_player_id: Optional[str]):
         """根据房间事件提示关闭、离线和重连状态。"""
-        if not room_state:
-            return
-        for event in room_state.get("recent_events", []):
+        for event in room_state.get("recent_events", []) if room_state else []:
             event_type = event.get("event_type")
-            if event_type not in {"player_left", "player_reconnected", "room_closed"}:
+            if event_type not in {"player_left", "player_reconnected", "player_timeout", "room_closed"}:
                 continue
             sequence = event.get("sequence")
             event_key = sequence if sequence is not None else (event_type, event.get("player_name"), event.get("message"))
@@ -382,21 +330,15 @@ class MultiplayerMixin:
                 continue
             self.notified_multiplayer_event_sequences.add(event_key)
             player_name = event.get("player_name") or "对手"
-            active_seat = next(
-                (seat for seat in room_state.get("seats", [])
-                 if seat.get("client_id") == self.active_multiplayer_client_id),
-                None
-            )
-            is_self_event = bool(active_seat and active_seat.get("player_id") == event.get("player_id"))
+            is_self_event = bool(active_player_id and active_player_id == event.get("player_id"))
             if event_type == "room_closed":
                 self._notify(event.get("message") or room_state.get("close_reason") or "房间已关闭")
-            elif event_type == "player_left" and not is_self_event:
+            elif event_type in ("player_left", "player_timeout") and not is_self_event:
                 self._notify(f"{player_name} 已离线，等待其重连。")
             elif event_type == "player_reconnected" and not is_self_event:
                 self._notify(f"{player_name} 已重新连接。")
 
     def _invalidate_multiplayer_status(self):
-        """使多人状态缓存失效，下一帧立即刷新。"""
         self._multiplayer_status_cache = None
         self._multiplayer_status_time = 0.0
 
@@ -416,7 +358,6 @@ class MultiplayerMixin:
         return status
 
     def _fetch_multiplayer_status(self) -> Optional[Dict[str, Any]]:
-        """拉取多人房间状态。"""
         active_player_id = self.session.player_id if hasattr(self.session, 'player_id') else self.local_player_id
         view_response = None
         if self.multiplayer_server:
@@ -424,31 +365,20 @@ class MultiplayerMixin:
                 room_state = self.multiplayer_server.get_room_state(self.multiplayer_room_id)
                 if self.active_multiplayer_client_id and not room_state.get("closed"):
                     view_response = self.multiplayer_server.get_player_view(
-                        self.multiplayer_room_id,
-                        self.active_multiplayer_client_id
-                    )
+                        self.multiplayer_room_id, self.active_multiplayer_client_id)
             except KeyError as error:
                 room_state = {"room_id": self.multiplayer_room_id, "closed": True, "close_reason": str(error)}
         elif hasattr(self.session, 'http_client'):
             room_response = self.session.http_client.get_room_state(self.multiplayer_room_id)
-            room_state = room_response.get("room", {}) if room_response.get("success") else room_response.get("room", {})
-            if not room_state:
-                room_state = {"room_id": self.multiplayer_room_id, "closed": False, "close_reason": room_response.get("message", "")}
+            room_state = room_response.get("room") or {
+                "room_id": self.multiplayer_room_id, "closed": False, "close_reason": room_response.get("message", "")}
             if not room_state.get("closed"):
                 view_response = self.session.get_player_view()
         else:
             return None
-        self._sync_multiplayer_room_notifications(room_state)
+        self._sync_multiplayer_room_notifications(room_state, active_player_id)
         view = view_response.get("view") if view_response and view_response.get("success") else None
-        visible_tile_count = 0
-        explored_tile_count = 0
-        if view:
-            visible_tile_count = sum(1 for tile in view["tiles"].values() if tile.get("visible"))
-            explored_tile_count = sum(1 for tile in view["tiles"].values() if tile.get("explored"))
-        offline_seats = [
-            seat for seat in room_state.get("seats", [])
-            if not seat.get("connected") and seat.get("client_id") != self.active_multiplayer_client_id
-        ]
+        tiles = view["tiles"].values() if view else []
         return {
             "room_id": self.multiplayer_room_id,
             "active_client_id": self.active_multiplayer_client_id,
@@ -456,8 +386,9 @@ class MultiplayerMixin:
             "closed": room_state.get("closed", False),
             "close_reason": room_state.get("close_reason", ""),
             "seats": room_state.get("seats", []),
-            "offline_seats": offline_seats,
+            "offline_seats": [seat for seat in room_state.get("seats", [])
+                              if not seat.get("connected") and seat.get("player_id") != active_player_id],
             "recent_events": room_state.get("recent_events", []),
-            "visible_tile_count": visible_tile_count,
-            "explored_tile_count": explored_tile_count,
+            "visible_tile_count": sum(1 for tile in tiles if tile.get("visible")),
+            "explored_tile_count": sum(1 for tile in (view["tiles"].values() if view else []) if tile.get("explored")),
         }

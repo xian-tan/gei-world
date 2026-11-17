@@ -354,6 +354,8 @@ def test_batch_soldier_production_and_movement():
     client._handle_unit_selected_click(client.game_engine.map_tiles[target], player)
     assert all(unit.position == city.center_tile for unit in soldiers)
     client._select_unit(soldiers[0])
+    assert client.ui_system.move_soldier_quantity == 3
+    client._handle_key_press(pygame.K_2, True)
     client._handle_unit_move_click(client.game_engine.map_tiles[target], player)
     soldier_stacks = [unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]
     moved = [unit for unit in soldier_stacks if unit.position == target]

@@ -56,10 +56,13 @@ class MultiplayerHTTPRequestHandler(BaseHTTPRequestHandler):
         app = self.server.multiplayer_server
         if method == "POST" and path_parts == ["rooms"]:
             return app.create_room(
-                host_name=str(payload.get("host_name", "玩家1")),
+                host_name=str(payload.get("host_name", "玩家1"))[:20],
                 max_players=int(payload.get("max_players", 2)),
                 turn_mode=str(payload.get("turn_mode", TurnSystem.MODE_SIMULTANEOUS)),
-                map_seed=payload.get("map_seed")
+                map_seed=payload.get("map_seed"),
+                map_type=payload.get("map_type"),
+                map_size=payload.get("map_size"),
+                password=payload.get("password")
             )
 
         if len(path_parts) >= 2 and path_parts[0] == "rooms":
@@ -67,7 +70,7 @@ class MultiplayerHTTPRequestHandler(BaseHTTPRequestHandler):
             if method == "GET" and len(path_parts) == 2:
                 return {"success": True, "room": app.get_room_state(room_id)}
             if method == "POST" and len(path_parts) == 3 and path_parts[2] == "join":
-                return app.join_room(room_id, str(payload.get("player_name", "玩家")))
+                return app.join_room(room_id, str(payload.get("player_name", "玩家"))[:20], payload.get("password"))
             if method == "POST" and len(path_parts) == 3 and path_parts[2] == "leave":
                 return app.leave_room(room_id, str(payload.get("client_id", "")))
             if method == "POST" and len(path_parts) == 3 and path_parts[2] == "reconnect":
@@ -118,16 +121,20 @@ class HTTPMultiplayerClient:
 
     def create_room(self, host_name: str, max_players: int = 2,
                     turn_mode: str = TurnSystem.MODE_SIMULTANEOUS,
-                    map_seed: int = None) -> Dict[str, object]:
+                    map_seed: int = None, map_type: str = None, map_size: str = None,
+                    password: str = None) -> Dict[str, object]:
         return self._request("POST", "/rooms", {
             "host_name": host_name,
             "max_players": max_players,
             "turn_mode": turn_mode,
             "map_seed": map_seed,
+            "map_type": map_type,
+            "map_size": map_size,
+            "password": password,
         })
 
-    def join_room(self, room_id: str, player_name: str) -> Dict[str, object]:
-        return self._request("POST", f"/rooms/{room_id}/join", {"player_name": player_name})
+    def join_room(self, room_id: str, player_name: str, password: str = None) -> Dict[str, object]:
+        return self._request("POST", f"/rooms/{room_id}/join", {"player_name": player_name, "password": password})
 
     def leave_room(self, room_id: str, client_id: str) -> Dict[str, object]:
         return self._request("POST", f"/rooms/{room_id}/leave", {"client_id": client_id})

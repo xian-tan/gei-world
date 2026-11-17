@@ -37,6 +37,7 @@ class InputSystem:
         self.on_mouse_drag = None
         self.on_mouse_up = None
         self.on_text_input = None
+        self.on_resize = None
     
     def handle_events(self, events):
         """处理pygame事件"""
@@ -65,6 +66,10 @@ class InputSystem:
             elif event.type == pygame.TEXTINPUT:
                 if self.on_text_input:
                     self.on_text_input(event.text)
+            
+            elif event.type == pygame.VIDEORESIZE:
+                if self.on_resize:
+                    self.on_resize(event.w, event.h)
         
         return True
     
@@ -85,9 +90,7 @@ class InputSystem:
             was_captured = self.mouse_captured_by_ui
             self.mouse_pressed = False
             self.mouse_captured_by_ui = False
-            if was_captured:
-                if self.on_mouse_up:
-                    self.on_mouse_up(event.pos)
+            if was_captured and self.on_mouse_up and self.on_mouse_up(event.pos):
                 return
             if self.on_tile_clicked:
                 self.on_tile_clicked(event.pos)

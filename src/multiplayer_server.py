@@ -4,6 +4,7 @@
 该模块只提供进程内房间/席位/权威 GameEngine 管理，不负责 socket 或 HTTP 传输。
 """
 import functools
+import secrets
 import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Union
@@ -18,6 +19,9 @@ from .network_protocol import (
     serialize_room_state,
 )
 from .systems.turn_system import TurnSystem
+
+
+ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
 @dataclass
@@ -36,6 +40,9 @@ class MultiplayerRoom:
     max_players: int
     turn_mode: str = TurnSystem.MODE_SIMULTANEOUS
     map_seed: Optional[int] = None
+    map_type: Optional[str] = None
+    map_size: Optional[str] = None
+    password: Optional[str] = None
     seats: List[PlayerSeat] = field(default_factory=list)
     engine: Optional[GameEngine] = None
     started: bool = False
@@ -65,19 +72,20 @@ class MultiplayerServer:
 
     def __init__(self):
         self.rooms: Dict[str, MultiplayerRoom] = {}
-        self._next_room_index = 1
-        self._next_client_index = 1
         self._lock = threading.RLock()
 
     @_locked
     def create_room(self, host_name: str, max_players: int = 2,
                     turn_mode: str = TurnSystem.MODE_SIMULTANEOUS,
-                    map_seed: int = None) -> Dict[str, object]:
-        """创建房间并占用第一个席位。"""
+                    map_seed: int = None, map_type: str = None, map_size: str = None,
+                    password: str = None) -> Dict[str, object]:
+        """创建房间并占用第一个席位；可选地图类型/尺寸与房间密码。"""
         if max_players < 2:
             raise ValueError("房间至少需要 2 名玩家")
         if max_players > 4:
             raise ValueError("当前最多支持 4 名玩家")
+        if turn_mode not in TurnSystem.SUPPORTED_MODES:
+            raise ValueError(f"未知回合模式: {turn_mode}")
 
         room_id = self._allocate_room_id()
         client_id = self._allocate_client_id()
@@ -86,6 +94,9 @@ class MultiplayerServer:
             max_players=max_players,
             turn_mode=turn_mode,
             map_seed=map_seed,
+            map_type=map_type,
+            map_size=map_size,
+            password=password or None,
             seats=[PlayerSeat(client_id=client_id, player_name=host_name)]
         )
         self.rooms[room_id] = room
@@ -96,11 +107,13 @@ class MultiplayerServer:
         }
 
     @_locked
-    def join_room(self, room_id: str, player_name: str) -> Dict[str, object]:
-        """加入未开始的房间。"""
+    def join_room(self, room_id: str, player_name: str, password: str = None) -> Dict[str, object]:
+        """加入未开始的房间；设置了密码的房间需提供正确密码。"""
         room = self._get_room(room_id)
         if room.closed:
             return self._room_failure(room, room.close_reason or "房间已关闭")
+        if room.password and password != room.password:
+            return self._failure("房间密码错误")
         if room.started:
             return self._failure("房间已开始，无法加入")
         if len(room.seats) >= room.max_players:
@@ -135,7 +148,8 @@ class MultiplayerServer:
 
         engine = GameEngine(turn_mode=room.turn_mode)
         player_names = [seat.player_name for seat in room.seats]
-        if not engine.initialize_game(player_names, room.map_seed, turn_mode=room.turn_mode):
+        if not engine.initialize_game(player_names, room.map_seed, turn_mode=room.turn_mode,
+                                      map_type=room.map_type, map_size=room.map_size):
             return self._failure("游戏初始化失败")
 
         for seat, player in zip(room.seats, engine.player_system.players):
@@ -297,19 +311,21 @@ class MultiplayerServer:
         }
 
     def _allocate_room_id(self) -> str:
-        room_id = f"room_{self._next_room_index}"
-        self._next_room_index += 1
-        return room_id
+        """6 位房间码：大写字母与数字，去掉易混淆的 0/O/1/I。"""
+        while True:
+            room_id = "".join(secrets.choice(ROOM_CODE_ALPHABET) for _ in range(6))
+            if room_id not in self.rooms:
+                return room_id
 
     def _allocate_client_id(self) -> str:
-        client_id = f"client_{self._next_client_index}"
-        self._next_client_index += 1
-        return client_id
+        """客户端身份令牌：不可猜测，只下发给加入者本人。"""
+        return secrets.token_urlsafe(12)
 
     def _get_room(self, room_id: str) -> MultiplayerRoom:
-        if room_id not in self.rooms:
+        key = str(room_id or "").strip().upper()
+        if key not in self.rooms:
             raise KeyError(f"房间不存在: {room_id}")
-        return self.rooms[room_id]
+        return self.rooms[key]
 
     def _require_seat(self, room: MultiplayerRoom, client_id: str) -> PlayerSeat:
         seat = room.get_seat(client_id)

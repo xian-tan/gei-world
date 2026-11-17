@@ -94,6 +94,8 @@ def serialize_room_state(room) -> Dict[str, Any]:
         "max_players": room.max_players,
         "turn_mode": room.turn_mode,
         "map_seed": room.map_seed,
+        "map_type": getattr(room, "map_type", None),
+        "has_password": bool(getattr(room, "password", None)),
         "seats": [
             {
                 "client_id": seat.client_id,

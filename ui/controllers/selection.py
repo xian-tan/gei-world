@@ -42,6 +42,9 @@ class SelectionMixin:
         if self.ui_system.handle_click(screen_pos):
             return
         if self.render_system.is_minimap_pos(screen_pos):
+            world = self.render_system.minimap_to_world(screen_pos)
+            if world:
+                self.camera_system.set_position(*world)
             return
         
         coord = self._get_tile_at_screen_pos(screen_pos[0], screen_pos[1])
@@ -111,7 +114,8 @@ class SelectionMixin:
         return True
 
     def _select_unit(self, unit):
-        """选中单位并刷新右键移动范围。"""
+        """选中单位并刷新右键移动范围；切换到新的士兵栈时默认移动全部人数。"""
+        previous_unit_id = self.input_system.get_selected_unit_id()
         self.move_mode_active = False
         self.input_system.set_mode(InputMode.UNIT_SELECTED, unit.id)
         self.ui_system._close_city_panel()
@@ -121,6 +125,8 @@ class SelectionMixin:
         self.render_system.clear_selected_city_economic_tiles()
         reachable_tiles = self.game_engine.unit_system.get_reachable_tiles(unit, self.game_engine.map_tiles)
         self.render_system.set_reachable_tiles(set(reachable_tiles))
+        if unit.unit_type == UnitType.SOLDIER and previous_unit_id != unit.id:
+            self.ui_system.move_soldier_quantity = unit.quantity
         if unit.unit_type == UnitType.SETTLER:
             self._notify(f"选中移民：移动力 {unit.movement_points}。右键移动，按 B 或点击建城按钮建城。")
         elif unit.unit_type == UnitType.SOLDIER:
@@ -356,3 +362,22 @@ class SelectionMixin:
         )
         if path:
             self.render_system.set_path_preview(path)
+
+    def _select_next_movable_unit(self) -> bool:
+        """选中下一个仍有移动力的己方单位，并把视角移过去。"""
+        player = self._get_controlled_player()
+        if not player or not self._can_controlled_player_act():
+            return False
+        movable = sorted((u for u in player.units if u.movement_points > 0),
+                         key=lambda u: (u.position.q, u.position.r, u.id))
+        if not movable:
+            self._notify("没有仍可移动的单位，可以结束回合了。")
+            return False
+        current_id = self.input_system.get_selected_unit_id()
+        ids = [u.id for u in movable]
+        index = (ids.index(current_id) + 1) % len(movable) if current_id in ids else 0
+        unit = movable[index]
+        self._select_unit(unit)
+        self.render_system.selected_tile = unit.position
+        self.camera_system.set_position(*HexRenderer.hex_to_pixel(unit.position.q, unit.position.r, OFFSET_X, OFFSET_Y))
+        return True

@@ -1,9 +1,13 @@
 """
-消息反馈：行动结果与事件文案。
+消息反馈：行动结果与事件文案、地图浮字。
 """
 from typing import Optional
 
 
+
+
+from src.models import HexCoord
+from ui.ui_config import COLORS
 
 
 class FeedbackMixin:
@@ -16,7 +20,14 @@ class FeedbackMixin:
 
     def _notify_action_result(self, result, actor_name: str = None):
         """展示结构化行动结果，优先显示战斗/攻城等关键事件。"""
-        priority_types = {"combat_resolved", "city_captured", "game_over"}
+        self._spawn_event_effects(result)
+        turn_events = {"turn_ended", "turn_advanced"}
+        if result.success and result.events and all(e.event_type in turn_events for e in result.events):
+            for event in result.events:
+                if event.event_type == "turn_advanced":
+                    self._notify(event.message)
+            return
+        priority_types = {"combat_resolved", "city_captured", "siege_failed", "game_over"}
         has_priority_event = any(event.event_type in priority_types for event in result.events)
         messages = []
         
@@ -73,4 +84,24 @@ class FeedbackMixin:
             return event.message or "单位生产成功"
         if event.event_type == "turn_ended":
             return event.message or "回合结束"
+        if event.event_type == "unit_produced":
+            return event.message or "单位生产成功"
         return event.message
+
+    def _spawn_event_effects(self, result):
+        """在可见地块上显示战斗/攻城/建城浮字。"""
+        effects = {
+            "combat_resolved": ("战斗！", COLORS['WARNING']),
+            "siege_failed": ("攻城失败", COLORS['DANGER']),
+            "city_captured": ("城市易主", COLORS['WARNING']),
+            "city_built": ("建城", COLORS['SUCCESS']),
+        }
+        viewer = self._get_controlled_player()
+        visible = self.session.get_visible_tiles(viewer.id) if viewer else set()
+        for event in result.events:
+            if event.event_type not in effects or not event.data.get("position"):
+                continue
+            coord = HexCoord(*event.data["position"])
+            if coord in visible:
+                text, color = effects[event.event_type]
+                self.render_system.add_floating_text(coord, text, color)

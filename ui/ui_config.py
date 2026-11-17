@@ -37,6 +37,26 @@ COLORS = {
     'FOG_OF_WAR': (50, 50, 50),   # 战争迷雾
     'EXPLORED': (100, 100, 100),   # 已探索但不可见
     
+    # 界面主题（深色）
+    'PANEL_BG': (24, 30, 42),
+    'PANEL_BG_ALT': (32, 40, 56),
+    'PANEL_BORDER': (78, 92, 120),
+    'TEXT': (232, 235, 240),
+    'TEXT_DIM': (150, 160, 176),
+    'ACCENT': (96, 165, 250),
+    'BUTTON': (52, 64, 88),
+    'BUTTON_HOVER': (72, 88, 120),
+    'BUTTON_DISABLED': (60, 64, 72),
+    'SUCCESS': (64, 168, 110),
+    'WARNING': (230, 168, 60),
+    'DANGER': (204, 72, 72),
+    
+    # 地形细分
+    'LAND_DARK': (30, 120, 40),
+    'COAST': (88, 140, 220),
+    'DEEP_OCEAN': (44, 82, 180),
+    'GRID': (0, 0, 0),
+    
     # 玩家颜色
     'PLAYER_1': (220, 80, 80),   # 红色系
     'PLAYER_2': (80, 120, 230),   # 蓝色系
@@ -60,6 +80,7 @@ MINIMAP_MARGIN = 14
 FONT_SIZE_SMALL = 12
 FONT_SIZE_MEDIUM = 16
 FONT_SIZE_LARGE = 24
+FONT_SIZE_XLARGE = 40
 
 # 中文字体路径
 CHINESE_FONTS = [
@@ -79,9 +100,8 @@ CHINESE_FONTS = [
     "C:/Windows/Fonts/simsun.ttf",      # 宋体(备选)
 ]
 
-# 单位图标设置
-UNIT_ICON_SIZE = 16
-
-# 动画设置
-ANIMATION_SPEED = 5
-FADE_SPEED = 2
+# HUD 布局
+TOP_BAR_HEIGHT = 48
+SIDE_PANEL_WIDTH = 280
+LOG_HEIGHT = 150
+PANEL_MARGIN = 10

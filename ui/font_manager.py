@@ -5,7 +5,7 @@ import pygame
 import os
 from typing import Optional
 
-from ui.ui_config import CHINESE_FONTS, FONT_SIZE_SMALL, FONT_SIZE_MEDIUM, FONT_SIZE_LARGE
+from ui.ui_config import CHINESE_FONTS, FONT_SIZE_SMALL, FONT_SIZE_MEDIUM, FONT_SIZE_LARGE, FONT_SIZE_XLARGE
 
 
 class FontManager:
@@ -22,7 +22,6 @@ class FontManager:
         """查找可用的中文字体"""
         for font_path in CHINESE_FONTS:
             if os.path.exists(font_path):
-                print(f"找到中文字体: {font_path}")
                 return font_path
         
         font_names = [
@@ -38,7 +37,6 @@ class FontManager:
         for font_name in font_names:
             matched_path = pygame.font.match_font(font_name)
             if matched_path and os.path.exists(matched_path):
-                print(f"找到系统中文字体: {font_name} -> {matched_path}")
                 return matched_path
         
         print("警告: 未找到中文字体，将使用默认字体")
@@ -49,7 +47,8 @@ class FontManager:
         sizes = {
             'small': FONT_SIZE_SMALL,
             'medium': FONT_SIZE_MEDIUM,
-            'large': FONT_SIZE_LARGE
+            'large': FONT_SIZE_LARGE,
+            'xlarge': FONT_SIZE_XLARGE
         }
         
         for size_name, size_value in sizes.items():
@@ -58,7 +57,6 @@ class FontManager:
                     # 尝试加载中文字体
                     font = pygame.font.Font(self.chinese_font_path, size_value)
                     self.fonts[size_name] = font
-                    print(f"已加载中文字体 {size_name}: {size_value}px")
                 except Exception as e:
                     print(f"加载中文字体失败: {e}")
                     # 回退到默认字体
@@ -81,6 +79,21 @@ class FontManager:
         """获取文本尺寸"""
         font = self.get_font(size)
         return font.size(text)
+    
+    def wrap_text(self, text: str, max_width: int, size: str = 'small') -> list:
+        """按像素宽度折行（逐字符，兼容中英文混排）。"""
+        font = self.get_font(size)
+        lines, current = [], ""
+        for char in text:
+            candidate = current + char
+            if current and font.size(candidate)[0] > max_width:
+                lines.append(current)
+                current = char
+            else:
+                current = candidate
+        if current or not lines:
+            lines.append(current)
+        return lines
 
 
 # 全局字体管理器实例

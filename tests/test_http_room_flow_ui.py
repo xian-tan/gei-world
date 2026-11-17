@@ -36,12 +36,13 @@ def test_http_modal_form_inputs_drive_room_flow():
         room_id = created["room"]["room_id"]
         client_id = created["client_id"]
         assert room_id
+        assert len(room_id) == 6 and room_id.isupper()
         assert client.last_http_room_info["room_id"] == room_id
         assert client.last_http_room_info["client_id"] == client_id
-        assert client.ui_system.get_modal_input_values()["room_id"] == room_id
-        assert client.ui_system.get_modal_input_values()["client_id"] == client_id
+        assert client.identity_store.lookup(base_url, room_id)["client_id"] == client_id
+        assert client.ui_system.active_modal["title"] == "等待对手加入"
         assert any(room_id in line for line in client.ui_system.active_modal["lines"])
-        assert any(client_id in line for line in client.ui_system.active_modal["lines"])
+        assert all(client_id not in line for line in client.ui_system.active_modal["lines"])
     finally:
         http_server.shutdown()
         http_server.server_close()

@@ -68,9 +68,11 @@ class LocalGameSession:
         self._engine = engine
 
     def start_game(self, player_names: List[str], map_seed: int = None,
-                   turn_mode: str = TurnSystem.MODE_SEQUENTIAL) -> bool:
+                   turn_mode: str = TurnSystem.MODE_SEQUENTIAL, map_type: str = None,
+                   map_size: str = None) -> bool:
         new_engine = GameEngine(turn_mode=turn_mode)
-        if not new_engine.initialize_game(player_names, map_seed, turn_mode=turn_mode):
+        if not new_engine.initialize_game(player_names, map_seed, turn_mode=turn_mode,
+                                          map_type=map_type, map_size=map_size):
             return False
         self._engine = new_engine
         return True
@@ -82,6 +84,7 @@ class LocalGameSession:
         return self._engine.turn_system.get_turn_status()
 
     def get_controlled_player(self, local_player_id: str = None) -> Optional[Player]:
+        """同时回合返回本地玩家；轮流回合返回当前行动玩家（热座时随回合切换视角）。"""
         turn_system = self._engine.turn_system
         if turn_system.mode == TurnSystem.MODE_SIMULTANEOUS and local_player_id:
             player = self._engine.player_system.get_player_by_id(local_player_id)

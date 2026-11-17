@@ -43,14 +43,12 @@ class PersistenceMixin:
             actions.append({
                 'text': label,
                 'callback': lambda name=save_name: self._handle_save_game(name),
-                'color': COLORS['BLUE'],
-                'text_color': COLORS['WHITE']
+                'color': COLORS['ACCENT'],
+                'text_color': COLORS['TEXT']
             })
         actions.append({
             'text': "取消",
             'callback': self.ui_system.close_modal,
-            'color': COLORS['LIGHT_GRAY'],
-            'text_color': COLORS['BLACK']
         })
         self.ui_system.show_modal("保存游戏", ["选择一个槽位保存；已有存档会被覆盖。"], actions)
 
@@ -71,8 +69,6 @@ class PersistenceMixin:
                 [{
                     'text': "关闭",
                     'callback': self.ui_system.close_modal,
-                    'color': COLORS['LIGHT_GRAY'],
-                    'text_color': COLORS['BLACK']
                 }]
             )
             return
@@ -82,14 +78,12 @@ class PersistenceMixin:
             actions.append({
                 'text': self._format_save_summary(save),
                 'callback': lambda name=save_name: self._load_save(name),
-                'color': COLORS['ORANGE'],
-                'text_color': COLORS['BLACK']
+                'color': COLORS['WARNING'],
+                'text_color': COLORS['PANEL_BG']
             })
         actions.append({
             'text': "取消",
             'callback': self.ui_system.close_modal,
-            'color': COLORS['LIGHT_GRAY'],
-            'text_color': COLORS['BLACK']
         })
         self.ui_system.show_modal("加载游戏", ["选择要读取的存档。"], actions)
 
