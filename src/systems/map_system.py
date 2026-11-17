@@ -75,17 +75,25 @@ class MapSystem:
         if len(candidates) < count:
             return []
 
-        buildable = {coord: self.buildable_area(coord) for coord in candidates}
-        best_area = max(buildable.values())
-        first_pool = [coord for coord in candidates if buildable[coord] >= best_area - 2]
-        selected = [rng.choice(first_pool)]
-        while len(selected) < count:
-            def score(coord):
-                spacing = min(coord.distance_to(other) for other in selected)
-                return spacing * 3 + buildable[coord] * 0.5 + rng.random()
-            remaining = [coord for coord in candidates if coord not in selected]
-            selected.append(max(remaining, key=score))
-        return [self.tiles[coord] for coord in selected]
+        # 多次随机起点贪心，选出"间距足够 + 最差出生点也不差 + 彼此差距小"的出生点组合
+        region = {coord: self.buildable_area(coord, 3) for coord in candidates}
+        desired_spacing = max(4, int(self.radius * (1.2 if count == 2 else 0.8)))
+        best_set, best_quality = None, None
+        for _ in range(40):
+            selected = [rng.choice(candidates)]
+            while len(selected) < count:
+                def score(coord):
+                    spacing = min(coord.distance_to(other) for other in selected)
+                    return min(spacing, desired_spacing) * 4 + region[coord] * 0.5 + rng.random()
+                remaining = [coord for coord in candidates if coord not in selected]
+                selected.append(max(remaining, key=score))
+            areas = [region[coord] for coord in selected]
+            spacing = min(a.distance_to(b) for i, a in enumerate(selected) for b in selected[i + 1:])
+            quality = min(spacing, desired_spacing) * 3 + min(areas) - (max(areas) - min(areas))
+            if best_quality is None or quality > best_quality:
+                best_set, best_quality = selected, quality
+        rng.shuffle(best_set)
+        return [self.tiles[coord] for coord in best_set]
 
     def are_coords_reachable(self, start: HexCoord, target: HexCoord,
                              allow_ocean: bool = True) -> bool:

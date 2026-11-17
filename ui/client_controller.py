@@ -572,16 +572,13 @@ class UIClient:
             ]
         )
     
-    def _setup_ai_players(self):
+    def _setup_ai_players(self, difficulty: str = "normal"):
         """将第一个玩家之外的玩家设为 AI。"""
         self.ai_manager = AIManager()
         self.game_engine.ai_player_configs = {}
         for player in self.game_engine.player_system.players[1:]:
-            self.ai_manager.add_ai_player(player, "simple", "easy")
-            self.game_engine.ai_player_configs[player.id] = {
-                "ai_type": "simple",
-                "difficulty": "easy"
-            }
+            self.ai_manager.add_ai_player(player, difficulty=difficulty)
+            self.game_engine.ai_player_configs[player.id] = {"difficulty": difficulty}
     
     def _restore_ai_players_from_engine(self):
         """根据引擎中的 AI 配置重建 AI 管理器。"""
@@ -589,125 +586,45 @@ class UIClient:
         for player_id, config in getattr(self.game_engine, 'ai_player_configs', {}).items():
             player = self.game_engine.player_system.get_player_by_id(player_id)
             if player:
-                self.ai_manager.add_ai_player(
-                    player,
-                    config.get("ai_type", "simple"),
-                    config.get("difficulty", "easy")
-                )
+                self.ai_manager.add_ai_player(player, difficulty=config.get("difficulty", "normal"))
+    
+    def _on_ai_result(self, player_name: str):
+        """AI 行动只播报战斗、攻城和胜负等关键事件，避免刷屏。"""
+        important = {"combat_resolved", "city_captured", "game_over"}
+        
+        def handle(_action, result):
+            if any(event.event_type in important for event in result.events):
+                self._notify_action_result(result, player_name)
+        return handle
+    
+    def _play_ai_turn(self, player):
+        self.ai_manager.play_turn(
+            player.id,
+            self.game_engine,
+            self.session.submit_action,
+            on_result=self._on_ai_result(player.name)
+        )
     
     def _process_ai_turns(self):
-        """自动处理连续 AI 回合，直到轮回人类玩家或游戏结束。"""
-        safety_limit = 200
-        per_ai_turn_limit = 20
-        actions_taken = 0
-        actions_this_turn = 0
-        active_ai_player_id = None
-        while not self.game_engine.game_over and actions_taken < safety_limit:
+        """轮流回合：自动处理连续 AI 回合，直到轮回人类玩家或游戏结束。"""
+        for _ in range(len(self.game_engine.player_system.players) * 2):
             current_player = self.game_engine.get_current_player()
-            if not current_player or not self.ai_manager.is_ai_player(current_player.id):
-                break
-            if active_ai_player_id != current_player.id:
-                active_ai_player_id = current_player.id
-                actions_this_turn = 0
-            
-            if actions_this_turn >= per_ai_turn_limit:
-                result = self.session.submit_action(GameAction(
-                    player_id=current_player.id,
-                    action_type=ActionType.END_TURN,
-                    params={}
-                ))
-                actions_taken += 1
-                actions_this_turn = 0
-                self._notify_action_result(result, current_player.name)
-                continue
-            
-            action = self.ai_manager.get_ai_action(current_player.id, self.game_engine)
-            if not action:
-                action = GameAction(
-                    player_id=current_player.id,
-                    action_type=ActionType.END_TURN,
-                    params={}
-                )
-            
-            result = self.session.submit_action(action)
-            actions_taken += 1
-            actions_this_turn += 1
-            self._notify_action_result(result, current_player.name)
-            if action.action_type == ActionType.END_TURN:
-                actions_this_turn = 0
-            elif not result.success:
-                result = self.session.submit_action(GameAction(
-                    player_id=current_player.id,
-                    action_type=ActionType.END_TURN,
-                    params={}
-                ))
-                actions_taken += 1
-                actions_this_turn = 0
-                self._notify_action_result(result, current_player.name)
-        
-        current_player = self.game_engine.get_current_player()
-        if (not self.game_engine.game_over and current_player and
-                self.ai_manager.is_ai_player(current_player.id)):
-            result = self.session.submit_action(GameAction(
-                player_id=current_player.id,
-                action_type=ActionType.END_TURN,
-                params={}
-            ))
-            self._notify_action_result(result, current_player.name)
+            if self.game_engine.game_over or not current_player or not self.ai_manager.is_ai_player(current_player.id):
+                return
+            self._play_ai_turn(current_player)
     
     def _process_simultaneous_ai_turns(self):
-        """同时回合模式下处理所有仍可行动的 AI，直到 AI 全部结束本回合。"""
-        safety_limit = 200
-        per_ai_turn_limit = 20
-        actions_taken = 0
-        actions_by_player = {}
+        """同时回合：所有仍可行动的 AI 完成本回合，不跨入下一回合。"""
         starting_turn = self.game_engine.turn_system.current_turn
-        while (not self.game_engine.game_over and actions_taken < safety_limit and
-               self.game_engine.turn_system.current_turn == starting_turn):
-            ai_players = [
-                player for player in self.game_engine.player_system.players
-                if self.ai_manager.is_ai_player(player.id)
-                and self.game_engine.turn_system.can_player_act(player.id)
-            ]
-            if not ai_players:
-                break
-            for current_player in ai_players:
-                actions_this_turn = actions_by_player.get(current_player.id, 0)
-                if actions_this_turn >= per_ai_turn_limit:
-                    action = GameAction(
-                        player_id=current_player.id,
-                        action_type=ActionType.END_TURN,
-                        params={}
-                    )
-                else:
-                    action = self.ai_manager.get_ai_action(current_player.id, self.game_engine)
-                    if not action:
-                        action = GameAction(
-                            player_id=current_player.id,
-                            action_type=ActionType.END_TURN,
-                            params={}
-                        )
-                
-                result = self.session.submit_action(action)
-                actions_taken += 1
-                self._notify_action_result(result, current_player.name)
-                if self.game_engine.turn_system.current_turn != starting_turn:
-                    break
-                if action.action_type == ActionType.END_TURN:
-                    actions_by_player[current_player.id] = 0
-                    continue
-                if not result.success:
-                    if self.game_engine.turn_system.can_player_act(current_player.id):
-                        end_result = self.session.submit_action(GameAction(
-                            player_id=current_player.id,
-                            action_type=ActionType.END_TURN,
-                            params={}
-                        ))
-                        actions_taken += 1
-                        self._notify_action_result(end_result, current_player.name)
-                    actions_by_player[current_player.id] = 0
-                else:
-                    actions_by_player[current_player.id] = actions_this_turn + 1
+        ai_players = [
+            player for player in self.game_engine.player_system.players
+            if self.ai_manager.is_ai_player(player.id)
+        ]
+        for player in ai_players:
+            if self.game_engine.game_over or self.game_engine.turn_system.current_turn != starting_turn:
+                return
+            if self.game_engine.turn_system.can_player_act(player.id):
+                self._play_ai_turn(player)
             
     def _center_camera_on_map(self):
         """将摄像机居中到地图"""

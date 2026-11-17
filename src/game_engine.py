@@ -268,9 +268,9 @@ class GameEngine:
         self._check_game_over()
         return True
     
-    def _on_new_turn(self):
-        """新一整轮开始：收入、移动力、城市防御/生产次数、合并士兵栈、刷新视野。"""
-        for player in self.player_system.players:
+    def _on_new_turn(self, players: List[Player] = None):
+        """玩家回合开始：收入、移动力、城市防御/生产次数、合并士兵栈、刷新视野。"""
+        for player in players if players is not None else self.player_system.players:
             income = self.player_system.calculate_income(player, self.map_tiles)
             self.player_system.update_player_gold(player, income)
             self.unit_system.restore_movement_points(player)

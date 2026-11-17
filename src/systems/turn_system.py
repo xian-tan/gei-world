@@ -1,7 +1,9 @@
 """
 回合系统 - 负责回合顺序和回合模式。
 
-回合开始时的经济、移动力、城市结算由 GameEngine 通过 on_new_turn 回调完成，
+回合开始时的经济、移动力、城市结算由 GameEngine 通过 on_turn_start(players) 回调完成：
+- 轮流回合：每名玩家在自己的回合开始时结算（第 1 轮除外），避免先后手在结算时机上不对称；
+- 同时回合：新一整轮开始时为所有存活玩家结算。
 本模块只维护"谁可以行动、何时进入下一整轮"。
 """
 from typing import Callable, Dict, List, Optional, Set
@@ -99,14 +101,14 @@ class TurnSystem:
         return "该玩家当前不能行动"
 
     def end_turn(self, player_id: Optional[str] = None,
-                 on_new_turn: Optional[Callable[[], None]] = None) -> Dict[str, object]:
-        """结束指定玩家回合；进入新一整轮时调用 on_new_turn。"""
+                 on_new_turn: Optional[Callable[[List[Player]], None]] = None) -> Dict[str, object]:
+        """结束指定玩家回合；有玩家开始新回合时以玩家列表调用 on_new_turn。"""
         if self.mode == self.MODE_SEQUENTIAL:
             return self._end_sequential_turn(player_id, on_new_turn)
         return self._end_simultaneous_turn(player_id, on_new_turn)
 
     def _end_sequential_turn(self, player_id: Optional[str],
-                             on_new_turn: Optional[Callable[[], None]]) -> Dict[str, object]:
+                             on_new_turn: Optional[Callable[[List[Player]], None]]) -> Dict[str, object]:
         current_player = self.get_current_player()
         if not current_player:
             return {"success": False, "reason": "没有当前玩家"}
@@ -118,9 +120,13 @@ class TurnSystem:
             self.current_player_index = (self.current_player_index + 1) % len(self.players)
             if self.current_player_index == 0:
                 turn_advanced = True
-                self._advance_full_turn(on_new_turn)
+                self.current_turn += 1
+                self.turn_number += 1
+                self.ended_player_ids = set()
             if is_player_alive(self.players[self.current_player_index]):
                 break
+        if on_new_turn and self.current_turn > 1:
+            on_new_turn([self.players[self.current_player_index]])
 
         next_player = self.get_current_player()
         return {
@@ -134,7 +140,7 @@ class TurnSystem:
         }
 
     def _end_simultaneous_turn(self, player_id: Optional[str],
-                               on_new_turn: Optional[Callable[[], None]]) -> Dict[str, object]:
+                               on_new_turn: Optional[Callable[[List[Player]], None]]) -> Dict[str, object]:
         if not player_id:
             return {"success": False, "reason": "未指定结束回合玩家"}
         if not self.can_player_act(player_id):
@@ -153,7 +159,7 @@ class TurnSystem:
             "ended_player_ids": sorted(self.ended_player_ids)
         }
 
-    def advance_if_all_ended(self, on_new_turn: Optional[Callable[[], None]] = None) -> bool:
+    def advance_if_all_ended(self, on_new_turn: Optional[Callable[[List[Player]], None]] = None) -> bool:
         """同时回合：所有存活玩家都已结束时推进整轮。"""
         if self.mode != self.MODE_SIMULTANEOUS:
             return False
@@ -163,13 +169,13 @@ class TurnSystem:
             return True
         return False
 
-    def _advance_full_turn(self, on_new_turn: Optional[Callable[[], None]]):
-        """推进到下一整轮并执行回合开始结算。"""
+    def _advance_full_turn(self, on_new_turn: Optional[Callable[[List[Player]], None]]):
+        """同时回合：推进到下一整轮并为所有存活玩家执行回合开始结算。"""
         self.current_turn += 1
         self.turn_number += 1
         self.ended_player_ids = set()
         if on_new_turn:
-            on_new_turn()
+            on_new_turn(self.alive_players())
 
     def is_game_over(self) -> bool:
         """检查是否只剩一名存活玩家。"""
