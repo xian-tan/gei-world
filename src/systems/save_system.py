@@ -282,7 +282,7 @@ class GameSaveSystem:
                         quantity=unit_data.get("quantity", 1)
                     )
                     owner.units.append(unit)
-                    engine.unit_system.units.append(unit)
+                    engine.unit_system.register(unit)
                     tile = map_tiles.get(position)
                     if tile:
                         tile.units.append(unit)

@@ -324,7 +324,7 @@ class HTTPNetworkSession:
                 )
                 tile.units.append(unit)
                 owner.units.append(unit)
-                engine.unit_system.units.append(unit)
+                engine.unit_system.register(unit)
 
         engine.map_system.tiles = engine.map_tiles
         engine.turn_system.players = engine.player_system.players

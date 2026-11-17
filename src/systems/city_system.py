@@ -133,13 +133,7 @@ class CitySystem:
                     existing.quantity += quantity
                     return existing
         
-        unit = unit_system.create_unit(unit_type, city.owner, city.center_tile, quantity)
-        
-        if center_tile:
-            center_tile.units.append(unit)
-        city.owner.units.append(unit)
-        
-        return unit
+        return unit_system.spawn_unit(unit_type, city.owner, city.center_tile, map_tiles, quantity)
     
     @staticmethod
     def get_unit_cost(unit_type: UnitType) -> int:

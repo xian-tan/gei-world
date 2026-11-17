@@ -8,10 +8,28 @@ from ..config import UNIT_CONFIG
 
 
 class UnitSystem:
-    """单位系统"""
+    """单位系统；单位的唯一注册表，所有增删都应通过本系统完成，以同步地块和玩家列表。"""
 
     def __init__(self):
-        self.units: List[Unit] = []
+        self._units: Dict[str, Unit] = {}
+
+    @property
+    def units(self) -> List[Unit]:
+        """当前存活单位列表（只读快照）。"""
+        return list(self._units.values())
+
+    def register(self, unit: Unit) -> Unit:
+        """把已创建的单位登记到注册表（读档、网络镜像使用）。"""
+        self._units[unit.id] = unit
+        return unit
+
+    def spawn_unit(self, unit_type: UnitType, owner: Player, position: HexCoord, map_tiles: dict,
+                   quantity: int = 1) -> Unit:
+        """创建单位并同时放入地块与玩家单位列表。"""
+        unit = self.create_unit(unit_type, owner, position, quantity)
+        map_tiles[position].units.append(unit)
+        owner.units.append(unit)
+        return unit
 
     def create_unit(self, unit_type: UnitType, owner: Player, position: HexCoord, quantity: int = 1) -> Unit:
         """创建单位；士兵 quantity 表示该单位栈的人数。"""
@@ -35,15 +53,11 @@ class UnitSystem:
             quantity=max(1, quantity) if unit_type == UnitType.SOLDIER else 1
         )
 
-        self.units.append(unit)
-        return unit
+        return self.register(unit)
 
     def get_unit_by_id(self, unit_id: str) -> Optional[Unit]:
         """根据ID获取单位"""
-        for unit in self.units:
-            if unit.id == unit_id:
-                return unit
-        return None
+        return self._units.get(unit_id)
 
     def split_unit_stack(self, unit: Unit, quantity: int, map_tiles: dict) -> Unit:
         """从士兵栈中拆出指定人数，返回用于移动/战斗的新栈。"""
@@ -61,7 +75,7 @@ class UnitSystem:
             vision_range=unit.vision_range,
             quantity=quantity
         )
-        self.units.append(split_unit)
+        self.register(split_unit)
         unit.owner.units.append(split_unit)
         tile = map_tiles.get(unit.position)
         if tile:
@@ -200,7 +214,6 @@ class UnitSystem:
         tile = map_tiles.get(unit.position)
         if tile and unit in tile.units:
             tile.units.remove(unit)
-        if unit in self.units:
-            self.units.remove(unit)
+        self._units.pop(unit.id, None)
         if unit in unit.owner.units:
             unit.owner.units.remove(unit)

@@ -109,3 +109,56 @@ def test_same_seed_produces_same_map_and_spawns():
         {c: t.terrain_type for c, t in second.map_tiles.items()}
     assert [p.units[0].position for p in first.player_system.players] == \
         [p.units[0].position for p in second.player_system.players]
+
+
+def test_failed_siege_emits_siege_failed_and_destroyed_events():
+    engine = _engine()
+    attacker, defender = engine.player_system.players
+    city = engine.city_system.create_city(defender, HexCoord(0, 0), engine.map_tiles)
+    defender.cities.append(city)
+    city.defense = 4
+    soldier = _place(engine, attacker, UnitType.SOLDIER, HexCoord(2, 0), quantity=2)
+
+    result = engine.execute_action_with_result(GameAction(
+        attacker.id, ActionType.MOVE_UNIT, {"unit_id": soldier.id, "target": [0, 0], "move_quantity": 2}
+    ))
+    types = [event.event_type for event in result.events]
+    assert types[0] == "unit_moved"
+    assert "siege_failed" in types
+    assert "combat_resolved" in types
+    assert result.message.startswith("攻城失败")
+    assert soldier.id not in {unit.id for unit in engine.unit_system.units}
+
+
+def test_elimination_emits_player_eliminated_and_game_over():
+    engine = _engine()
+    hunter_owner, victim = engine.player_system.players
+    city = engine.city_system.create_city(hunter_owner, HexCoord(-3, 0), engine.map_tiles)
+    hunter_owner.cities.append(city)
+    victim_settler = next(u for u in victim.units if u.unit_type == UnitType.SETTLER)
+    _place(engine, victim, UnitType.SOLDIER, HexCoord(5, -5))
+    target = victim_settler.position
+    hunter = _place(engine, hunter_owner, UnitType.SOLDIER, HexCoord(target.q + 1, target.r))
+
+    result = engine.execute_action_with_result(GameAction(
+        hunter_owner.id, ActionType.MOVE_UNIT, {"unit_id": hunter.id, "target": [target.q, target.r]}
+    ))
+    types = [event.event_type for event in result.events]
+    assert "player_eliminated" in types
+    assert types[-1] == "game_over"
+    assert engine.winner == hunter_owner
+    assert not victim.units
+
+
+def test_unit_registry_stays_consistent_after_combat():
+    engine = _engine()
+    attacker, defender = engine.player_system.players
+    soldier = _place(engine, attacker, UnitType.SOLDIER, HexCoord(0, 0), quantity=3)
+    _place(engine, defender, UnitType.SOLDIER, HexCoord(1, 0), quantity=5)
+    assert engine.execute_action(GameAction(
+        attacker.id, ActionType.MOVE_UNIT, {"unit_id": soldier.id, "target": [1, 0], "move_quantity": 3}
+    ))
+    registry = {unit.id for unit in engine.unit_system.units}
+    on_map = {unit.id for tile in engine.map_tiles.values() for unit in tile.units}
+    owned = {unit.id for player in engine.player_system.players for unit in player.units}
+    assert registry == on_map == owned

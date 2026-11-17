@@ -1,16 +1,17 @@
 """
 战斗系统 - 负责战斗逻辑和占领机制
 """
-from typing import List, Tuple, Optional
+from typing import Callable, List, Tuple, Optional
 from ..models import Unit, Player, HexCoord, UnitType
 from ..config import CITY_CONFIG
 
 
 class CombatSystem:
-    """战斗系统"""
+    """战斗系统；单位移除委托给 UnitSystem，并通过回调上报被消灭的单位。"""
     
-    def __init__(self):
-        pass
+    def __init__(self, unit_system=None, on_unit_destroyed: Optional[Callable[[Unit], None]] = None):
+        self.unit_system = unit_system
+        self.on_unit_destroyed = on_unit_destroyed
     
     def resolve_combat(self, attacking_units: List[Unit], defending_units: List[Unit], 
                       position: HexCoord, map_tiles: dict) -> Tuple[List[Unit], List[Unit]]:
@@ -89,14 +90,17 @@ class CombatSystem:
         return len(players) > 1
     
     def _remove_unit_from_tile(self, unit: Unit, position: HexCoord, map_tiles: dict):
-        """从地块移除单位"""
-        tile = map_tiles.get(position)
-        if tile and unit in tile.units:
-            tile.units.remove(unit)
-        
-        # 从玩家单位列表移除
-        if unit in unit.owner.units:
-            unit.owner.units.remove(unit)
+        """战斗中消灭单位：从地块、玩家和注册表中移除。"""
+        if self.unit_system is not None:
+            self.unit_system.remove_unit(unit, map_tiles)
+        else:
+            tile = map_tiles.get(position)
+            if tile and unit in tile.units:
+                tile.units.remove(unit)
+            if unit in unit.owner.units:
+                unit.owner.units.remove(unit)
+        if self.on_unit_destroyed:
+            self.on_unit_destroyed(unit)
     
     def _transfer_city_ownership(self, city, old_owner: Player, new_owner: Player, map_tiles: dict):
         """转移城市所有权"""
