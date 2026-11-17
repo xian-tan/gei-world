@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 from .. import __version__
-from ..models import GameState, Player, HexCoord, Tile, Unit, City, TerrainType, UnitType
+from ..models import Player, HexCoord, Tile, Unit, City, TerrainType, UnitType
 from ..game_engine import GameEngine
 from ..config import CITY_CONFIG
 

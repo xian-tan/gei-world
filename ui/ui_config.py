@@ -1,7 +1,6 @@
 """
 UI常量配置
 """
-import pygame
 
 # 屏幕设置
 SCREEN_WIDTH = 1200

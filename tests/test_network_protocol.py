@@ -3,7 +3,7 @@
 """
 
 from src.game_engine import GameEngine
-from src.models import ActionType, GameAction, HexCoord, TerrainType
+from src.models import ActionType, GameAction, TerrainType
 from src.network_protocol import (
     deserialize_action,
     serialize_action,

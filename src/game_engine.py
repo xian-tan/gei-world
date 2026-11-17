@@ -5,7 +5,7 @@
 UI、AI 和网络层只消费 ActionResult，不再依赖前后快照对比。
 """
 import random
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
 from .models import (Player, GameAction, ActionType, GameState, Unit,
                      UnitType, HexCoord, TerrainType, ActionEvent, ActionResult)

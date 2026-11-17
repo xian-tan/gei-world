@@ -2,15 +2,10 @@
 """
 测试UI修复功能
 """
-import sys
 import os
 import tempfile
 import pygame
 
-# 添加项目根目录到路径
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-sys.path.insert(0, project_root)
 
 def test_ui_fixes():
     """测试UI修复"""
@@ -246,7 +241,7 @@ def test_selection_cycle_build_city_and_minimap():
     """测试同格循环选择、B 建城、右键取消、小地图和移动力耗尽取消。"""
     from ui.client_controller import UIClient
     from ui.systems.input_system import InputMode
-    from src.models import HexCoord, UnitType, TerrainType
+    from src.models import UnitType, TerrainType
     from src.config import CITY_CONFIG
     from ui.hex_renderer import HexRenderer
     from ui.ui_config import OFFSET_X, OFFSET_Y

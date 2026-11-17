@@ -3,7 +3,7 @@
 """
 import pygame
 import os
-from typing import Dict, Optional
+from typing import Optional
 
 from ui.ui_config import CHINESE_FONTS, FONT_SIZE_SMALL, FONT_SIZE_MEDIUM, FONT_SIZE_LARGE
 

@@ -2,18 +2,11 @@
 输入处理系统
 """
 import pygame
-from typing import Optional, Tuple, Callable
+from typing import Optional
 from enum import Enum
 
-import sys
-import os
 
-# 添加项目根目录到路径
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(current_dir))
-sys.path.insert(0, project_root)
 
-from src.models import HexCoord
 
 
 class InputMode(Enum):

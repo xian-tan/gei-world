@@ -2,19 +2,13 @@
 UI界面系统 - 面板、按钮等
 """
 import pygame
-import sys
-import os
-from typing import List, Optional, Dict, Any, Callable
+from typing import List, Dict, Any, Callable
 from dataclasses import dataclass
 
-# 添加项目根目录到路径
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(current_dir))
-sys.path.insert(0, project_root)
 
 from src.config import UNIT_CONFIG, CITY_CONFIG
-from src.models import Player, City, Unit, UnitType
-from ui.ui_config import COLORS, FONT_SIZE_SMALL, FONT_SIZE_MEDIUM, FONT_SIZE_LARGE
+from src.models import City, UnitType
+from ui.ui_config import COLORS
 from ui.font_manager import get_font_manager
 
 

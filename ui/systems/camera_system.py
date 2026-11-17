@@ -1,7 +1,6 @@
 """
 摄像机系统 - 地图缩放、平移
 """
-import pygame
 from typing import Tuple
 
 
@@ -35,7 +34,6 @@ class CameraSystem:
         world_y_before = (screen_y - self.screen_height // 2) / self.zoom + self.y
         
         # 更新缩放级别
-        old_zoom = self.zoom
         self.zoom *= zoom_factor
         self.zoom = max(self.min_zoom, min(self.max_zoom, self.zoom))
         

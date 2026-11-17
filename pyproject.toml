@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gei-world"
+version = "0.2.0"
+description = "六边形回合制策略游戏（pygame），支持单人对 AI、本机与 HTTP 多人"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pygame>=2.5.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "ruff>=0.4"]
+
+[project.scripts]
+gei-world = "ui.__main__:main"
+gei-world-server = "src.http_multiplayer:main"
+
+[tool.setuptools.packages.find]
+include = ["src*", "ui*"]
+
+[tool.ruff]
+line-length = 130
+extend-exclude = [".conda", "build", "dist", "release-artifacts"]
+
+[tool.ruff.lint]
+select = ["F"]

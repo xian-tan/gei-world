@@ -176,6 +176,16 @@ class HTTPMultiplayerClient:
             return {"success": False, "message": f"连接失败: {exc}"}
 
 
+def main():
+    """命令行入口：gei-world-server --host 0.0.0.0 --port 8000。"""
+    import argparse
+    parser = argparse.ArgumentParser(description="启动 gei-world 多人 HTTP 服务")
+    parser.add_argument("--host", default="127.0.0.1", help="监听地址")
+    parser.add_argument("--port", type=int, default=8000, help="监听端口")
+    args = parser.parse_args()
+    run_http_server(args.host, args.port)
+
+
 def run_http_server(host: str = "127.0.0.1", port: int = 8000):
     """阻塞运行 HTTP 多人服务。"""
     http_server = create_http_server(host, port)
