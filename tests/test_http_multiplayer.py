@@ -92,14 +92,16 @@ def test_http_multiplayer_leave_and_reconnect_room():
     try:
         created = client.create_room("玩家1", turn_mode=TurnSystem.MODE_SIMULTANEOUS, map_seed=123)
         room_id = created["room"]["room_id"]
-        client.join_room(room_id, "玩家2")
-        guest_client_id = client.get_room_state(room_id)["room"]["seats"][1]["client_id"]
+        guest_client_id = client.join_room(room_id, "玩家2")["client_id"]
+        assert all("client_id" not in seat for seat in client.get_room_state(room_id)["room"]["seats"])
         client.start_room(room_id, turn_mode=TurnSystem.MODE_SIMULTANEOUS)
 
         left = client.leave_room(room_id, guest_client_id)
         assert left["success"]
         assert not left["room"]["seats"][1]["connected"]
-        assert left["room"]["recent_events"][-1]["event_type"] == "player_left"
+        left_types = [event["event_type"] for event in left["room"]["recent_events"]]
+        assert "player_left" in left_types
+        assert "turn_skipped" in left_types
 
         reconnected = client.reconnect_room(room_id, guest_client_id)
         assert reconnected["success"]

@@ -30,6 +30,7 @@ HELP_LINES = [
     ("PageUp / PageDown", "翻看事件日志"),
     ("TAB", "热座/本机多人切换玩家"),
     ("Q", "离开多人房间"),
+    ("F", "房主：跳过离线玩家的回合"),
     ("F1", "显示/隐藏本帮助"),
     ("ESC", "取消选择 / 菜单"),
 ]
@@ -327,7 +328,8 @@ class UISystem:
         pygame.draw.rect(surface, COLORS['PANEL_BG_ALT'], card, border_radius=5)
         x, y = card.x + 8, card.y + 6
         y = self._text(surface, f"房间 {status.get('room_id')}", (x, y), 'medium').bottom + 2
-        y = self._text(surface, f"本机身份：{status.get('active_client_id')}", (x, y), 'small', COLORS['TEXT_DIM']).bottom + 4
+        role = "房主" if status.get('is_host') else "玩家"
+        y = self._text(surface, f"你：{status.get('you_name') or '-'}（{role}）", (x, y), 'small', COLORS['TEXT_DIM']).bottom + 4
         if status.get('closed'):
             for line in self.font_manager.wrap_text(f"已关闭：{status.get('close_reason') or '房间已关闭'}", card.width - 16):
                 y = self._text(surface, line, (x, y), 'small', COLORS['DANGER']).bottom + 2
@@ -353,6 +355,8 @@ class UISystem:
             for line in self.font_manager.wrap_text(f"· {message}", card.width - 16)[:2]:
                 y = self._text(surface, line, (x, y), 'small', COLORS['TEXT_DIM']).bottom + 1
         hint = "TAB 切换视角 · Q 离开" if status.get('can_switch') else "Q 离开房间"
+        if status.get('is_host') and status.get('offline_seats'):
+            hint += " · F 跳过离线玩家"
         if y < card.bottom - 18:
             self._text(surface, hint, (x, card.bottom - 18), 'small', COLORS['TEXT_DIM'])
         return card.bottom

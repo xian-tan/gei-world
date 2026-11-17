@@ -81,34 +81,51 @@ def deserialize_action_result(data: Dict[str, Any]) -> ActionResult:
     )
 
 
-def serialize_room_state(room) -> Dict[str, Any]:
-    """序列化房间状态。"""
+PUBLIC_ROOM_EVENT_TYPES = {
+    "turn_ended", "turn_advanced", "turn_skipped", "player_left", "player_reconnected", "player_timeout",
+    "room_closed", "room_saved", "player_eliminated", "game_over",
+}
+
+
+def serialize_room_state(room, viewer_client_id: str = None) -> Dict[str, Any]:
+    """序列化公开房间状态。
+
+    不包含任何席位的客户端令牌；事件只保留回合与房间级事件且去掉坐标数据，避免绕过战争迷雾。
+    传入 viewer_client_id 时标记出请求者自己的席位（is_you）。
+    """
     ended_player_ids = getattr(room.engine.turn_system, "ended_player_ids", set()) if room.engine else set()
     actionable_player_ids = set(room.engine.turn_system.get_turn_status().get("actionable_player_ids", [])) if room.engine else set()
-    host_client_id = room.seats[0].client_id if room.seats else None
+    closed = getattr(room, "closed", False)
     return {
         "room_id": room.room_id,
         "started": room.started,
-        "closed": getattr(room, "closed", False),
+        "closed": closed,
         "close_reason": getattr(room, "close_reason", ""),
         "max_players": room.max_players,
         "turn_mode": room.turn_mode,
         "map_seed": room.map_seed,
         "map_type": getattr(room, "map_type", None),
         "has_password": bool(getattr(room, "password", None)),
+        "game_over": bool(room.engine and room.engine.game_over),
+        "turn": room.engine.turn_system.current_turn if room.engine else 0,
         "seats": [
             {
-                "client_id": seat.client_id,
+                "seat_index": index,
                 "player_name": seat.player_name,
                 "player_id": seat.player_id,
                 "connected": seat.connected,
-                "is_host": seat.client_id == host_client_id,
+                "is_host": index == 0,
+                "is_you": bool(viewer_client_id) and seat.client_id == viewer_client_id,
                 "ended_turn": seat.player_id in ended_player_ids,
-                "can_act": seat.player_id in actionable_player_ids and seat.connected and not getattr(room, "closed", False)
+                "can_act": seat.player_id in actionable_player_ids and seat.connected and not closed,
             }
-            for seat in room.seats
+            for index, seat in enumerate(room.seats)
         ],
-        "recent_events": list(getattr(room, "event_log", [])[-12:])
+        "recent_events": [
+            {key: value for key, value in event.items() if key != "data"}
+            for event in getattr(room, "event_log", [])
+            if event.get("event_type") in PUBLIC_ROOM_EVENT_TYPES
+        ][-12:],
     }
 
 

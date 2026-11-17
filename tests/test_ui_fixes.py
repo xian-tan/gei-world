@@ -656,7 +656,8 @@ def test_local_multiplayer_ui_reports_opponent_offline_and_room_closed():
 
     client.multiplayer_server.leave_room(client.multiplayer_room_id, guest_client_id)
     status = client._get_game_state()["multiplayer_status"]
-    assert status["offline_seats"][0]["client_id"] == guest_client_id
+    assert status["offline_seats"][0]["player_id"] == "player_1"
+    assert "client_id" not in status["offline_seats"][0]
     assert any("玩家2 已离线" in message for message in client.ui_system.messages)
 
     client.multiplayer_server.leave_room(client.multiplayer_room_id, host_client_id)

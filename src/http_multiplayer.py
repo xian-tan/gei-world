@@ -4,6 +4,7 @@ HTTP + 轮询多人传输层原型。
 基于 Python 标准库提供最小 HTTP API，把进程内 MultiplayerServer 暴露为可连接服务。
 """
 import json
+import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, Optional
 from urllib import parse, request, error
@@ -65,10 +66,23 @@ class MultiplayerHTTPRequestHandler(BaseHTTPRequestHandler):
                 password=payload.get("password")
             )
 
+        if method == "POST" and path_parts == ["rooms", "restore"]:
+            return app.restore_room(str(payload.get("save_code", "")), str(payload.get("host_name", ""))[:20],
+                                    payload.get("password"))
+        if method == "GET" and path_parts == ["health"]:
+            return {"success": True, "rooms": len(app.rooms)}
+
         if len(path_parts) >= 2 and path_parts[0] == "rooms":
             room_id = path_parts[1]
             if method == "GET" and len(path_parts) == 2:
-                return {"success": True, "room": app.get_room_state(room_id)}
+                viewer = query.get("client_id", [None])[0]
+                return {"success": True, "room": app.get_room_state(room_id, viewer)}
+            if method == "POST" and len(path_parts) == 3 and path_parts[2] == "heartbeat":
+                return app.heartbeat(room_id, str(payload.get("client_id", "")))
+            if method == "POST" and len(path_parts) == 3 and path_parts[2] == "force_skip":
+                return app.force_skip(room_id, str(payload.get("client_id", "")))
+            if method == "POST" and len(path_parts) == 3 and path_parts[2] == "save":
+                return app.save_room(room_id, str(payload.get("client_id", "")))
             if method == "POST" and len(path_parts) == 3 and path_parts[2] == "join":
                 return app.join_room(room_id, str(payload.get("player_name", "玩家"))[:20], payload.get("password"))
             if method == "POST" and len(path_parts) == 3 and path_parts[2] == "leave":
@@ -154,8 +168,22 @@ class HTTPMultiplayerClient:
             "action": serialize_action(action),
         })
 
-    def get_room_state(self, room_id: str) -> Dict[str, object]:
-        return self._request("GET", f"/rooms/{room_id}")
+    def get_room_state(self, room_id: str, client_id: str = None) -> Dict[str, object]:
+        suffix = f"?client_id={parse.quote(client_id)}" if client_id else ""
+        return self._request("GET", f"/rooms/{room_id}{suffix}")
+
+    def heartbeat(self, room_id: str, client_id: str) -> Dict[str, object]:
+        return self._request("POST", f"/rooms/{room_id}/heartbeat", {"client_id": client_id})
+
+    def force_skip(self, room_id: str, client_id: str) -> Dict[str, object]:
+        return self._request("POST", f"/rooms/{room_id}/force_skip", {"client_id": client_id})
+
+    def save_room(self, room_id: str, client_id: str) -> Dict[str, object]:
+        return self._request("POST", f"/rooms/{room_id}/save", {"client_id": client_id})
+
+    def restore_room(self, save_code: str, host_name: str, password: str = None) -> Dict[str, object]:
+        return self._request("POST", "/rooms/restore", {"save_code": save_code, "host_name": host_name,
+                                                         "password": password})
 
     def get_player_view(self, room_id: str, client_id: str) -> Dict[str, object]:
         encoded_client_id = parse.quote(client_id)
@@ -194,7 +222,13 @@ def main():
 
 
 def run_http_server(host: str = "127.0.0.1", port: int = 8000):
-    """阻塞运行 HTTP 多人服务。"""
+    """阻塞运行 HTTP 多人服务（含房间生命周期日志）。"""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     http_server = create_http_server(host, port)
     print(f"多人 HTTP 服务已启动: http://{host}:{port}")
-    http_server.serve_forever()
+    try:
+        http_server.serve_forever()
+    except KeyboardInterrupt:
+        print("服务已停止")
+    finally:
+        http_server.server_close()

@@ -88,7 +88,9 @@ def test_multiplayer_server_leave_and_reconnect_room():
     left = server.leave_room(room_id, client2)
     assert left["success"]
     assert not left["room"]["seats"][1]["connected"]
-    assert left["room"]["recent_events"][-1]["event_type"] == "player_left"
+    left_types = [event["event_type"] for event in left["room"]["recent_events"]]
+    assert "player_left" in left_types
+    assert "turn_skipped" in left_types
 
     offline_action = server.submit_action(room_id, client2, serialize_action(GameAction(
         player_id="player_1",

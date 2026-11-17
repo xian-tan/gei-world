@@ -126,7 +126,8 @@ class MultiplayerMixin:
         latest = self.identity_store.latest() or {}
         base_url = self.last_http_room_info.get("base_url") or latest.get("base_url") or self._get_http_base_url()
         room_id = self.last_http_room_info.get("room_id") or latest.get("room_id", "")
-        lines = ["房主点击「创建房间」后把房间码发给对手；对手填写房间码后点击「加入房间」。"]
+        lines = ["房主点击「创建房间」后把房间码发给对手；对手填写房间码后点击「加入房间」。",
+                 "恢复房间：在房间码处填写保存时的恢复码，名字填你在原对局中的名字。"]
         if room_id:
             lines.append(f"最近房间：{room_id}（断线后可直接「重新连接」）")
 
@@ -143,6 +144,9 @@ class MultiplayerMixin:
                 player_name=form().get("player_name") or "挑战者", password=form().get("password") or None)},
             {'text': "重新连接", 'callback': lambda: self._connect_http_multiplayer_existing(
                 base_url=form()["base_url"], room_id=form()["room_id"], player_name=form().get("player_name", ""))},
+            {'text': "恢复已保存房间", 'callback': lambda: self._restore_http_room(
+                base_url=form()["base_url"], save_code=form()["room_id"], host_name=form().get("player_name", ""),
+                password=form().get("password") or None)},
         ]
         if is_dev_mode():
             actions.append({'text': "调试双席位房", 'callback': lambda: self._start_http_multiplayer(
@@ -190,7 +194,8 @@ class MultiplayerMixin:
         if not force and now - self._pending_poll_time < self.multiplayer_poll_interval:
             return False
         self._pending_poll_time = now
-        response = HTTPMultiplayerClient(pending["base_url"], timeout=1.5).get_room_state(pending["room_id"])
+        response = HTTPMultiplayerClient(pending["base_url"], timeout=1.5).heartbeat(
+            pending["room_id"], pending["client_id"])
         room = response.get("room") or {}
         if not response.get("success"):
             self._notify(f"等待房间失败：{response.get('message', '未知错误')}")
@@ -203,8 +208,7 @@ class MultiplayerMixin:
             self.ui_system.close_modal()
             return False
         if room.get("started"):
-            host_name = next((seat.get("player_name") for seat in room.get("seats", [])
-                              if seat.get("client_id") == pending["client_id"]), "")
+            host_name = next((seat.get("player_name") for seat in room.get("seats", []) if seat.get("is_you")), "")
             return self._connect_http_multiplayer_existing(pending["base_url"], pending["room_id"],
                                                            pending["client_id"], host_name)
         return False
@@ -216,6 +220,57 @@ class MultiplayerMixin:
         self.pending_host_room = None
         self.ui_system.close_modal()
         self._notify("已取消房间。")
+
+    def _restore_http_room(self, base_url: str, save_code: str, host_name: str, password: str = None) -> bool:
+        """从服务端快照恢复房间，房主直接进入，其他玩家用原名字加入。"""
+        if not save_code or not host_name:
+            self._notify("恢复房间需要恢复码和你在原对局中的名字。")
+            return False
+        http_client = HTTPMultiplayerClient(base_url, timeout=3)
+        response = http_client.restore_room(save_code, host_name, password)
+        if not response.get("success"):
+            self._notify(f"恢复房间失败：{response.get('message', '未知错误')}")
+            return False
+        room_id = response["room"]["room_id"]
+        client_id = response["client_id"]
+        self._remember_http_room_info(base_url, room_id, client_id, host_name)
+        session = HTTPNetworkSession(http_client, room_id, client_id)
+        session.get_player_view()
+        self._enter_multiplayer_game(room_id, {client_id: session}, client_id)
+        self._notify(f"房间已恢复：新房间码 {room_id}，请其他玩家用原名字加入。")
+        return True
+
+    def _save_multiplayer_room(self) -> bool:
+        """房主把多人对局保存到服务端。"""
+        session = self.session
+        if self.multiplayer_server and self.active_multiplayer_client_id:
+            response = self.multiplayer_server.save_room(self.multiplayer_room_id, self.active_multiplayer_client_id)
+        elif hasattr(session, "http_client"):
+            response = session.http_client.save_room(self.multiplayer_room_id, session.client_id)
+        else:
+            return False
+        if response.get("success"):
+            self._notify(f"房间已保存到服务端，恢复码：{response['save_code']}")
+            return True
+        self._notify(f"保存失败：{response.get('message', '未知错误')}")
+        return False
+
+    def _force_skip_offline(self) -> bool:
+        """房主强制结束离线玩家的回合。"""
+        if self.multiplayer_server and self.active_multiplayer_client_id:
+            response = self.multiplayer_server.force_skip(self.multiplayer_room_id, self.active_multiplayer_client_id)
+        elif hasattr(self.session, "http_client"):
+            response = self.session.http_client.force_skip(self.multiplayer_room_id, self.session.client_id)
+        else:
+            return False
+        self._invalidate_multiplayer_status()
+        if response.get("success"):
+            self._notify(f"已跳过离线玩家：{'、'.join(response.get('skipped', []))}")
+            if hasattr(self.session, "get_player_view"):
+                self.session.get_player_view()
+            return True
+        self._notify(response.get("message", "无法跳过"))
+        return False
 
     def _join_http_multiplayer_room(self, base_url: str = None, room_id: str = None, player_name: str = "挑战者",
                                     turn_mode: str = None, map_seed: int = None, password: str = None):
@@ -232,10 +287,11 @@ class MultiplayerMixin:
             return False
         client_id = joined["client_id"]
         self._remember_http_room_info(base_url, room_id, client_id, player_name)
-        start_response = http_client.start_room(room_id, map_seed=map_seed, turn_mode=turn_mode)
-        if not start_response.get("success"):
-            self._notify(f"已加入，等待开局：{start_response.get('message', '等待房主开始')}")
-            return False
+        if not (joined.get("room") or {}).get("started"):
+            start_response = http_client.start_room(room_id, map_seed=map_seed, turn_mode=turn_mode)
+            if not start_response.get("success"):
+                self._notify(f"已加入，等待开局：{start_response.get('message', '等待房主开始')}")
+                return False
         session = HTTPNetworkSession(http_client, room_id, client_id)
         session.get_player_view()
         self._enter_multiplayer_game(room_id, {client_id: session}, client_id)
@@ -379,9 +435,12 @@ class MultiplayerMixin:
         self._sync_multiplayer_room_notifications(room_state, active_player_id)
         view = view_response.get("view") if view_response and view_response.get("success") else None
         tiles = view["tiles"].values() if view else []
+        you = next((seat for seat in room_state.get("seats", []) if seat.get("player_id") == active_player_id), {})
         return {
             "room_id": self.multiplayer_room_id,
             "active_client_id": self.active_multiplayer_client_id,
+            "you_name": you.get("player_name", ""),
+            "is_host": bool(you.get("is_host")),
             "active_player_id": active_player_id,
             "closed": room_state.get("closed", False),
             "close_reason": room_state.get("close_reason", ""),

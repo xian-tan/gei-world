@@ -259,6 +259,9 @@ class UIClient(MenuMixin, FeedbackMixin, GameFlowMixin, SelectionMixin, Persiste
         if key == pygame.K_q and self.multiplayer_room_id:
             self._show_leave_multiplayer_modal()
             return
+        if key == pygame.K_f and self.multiplayer_room_id:
+            self._force_skip_offline()
+            return
         if key in (pygame.K_PAGEUP, pygame.K_PAGEDOWN):
             self.ui_system.scroll_log(3 if key == pygame.K_PAGEUP else -3)
             return

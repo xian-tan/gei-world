@@ -17,7 +17,10 @@ class PersistenceMixin:
         return f"{save_info.get('name', '未知')} | 回合 {save_info.get('turn', 0)} | {timestamp}"
 
     def _handle_save_game(self, save_name: str = None):
-        """处理保存游戏。无存档名时打开多存档槽位面板。"""
+        """处理保存游戏。无存档名时打开多存档槽位面板；多人对局改为房主保存到服务端。"""
+        if self.multiplayer_room_id:
+            self._save_multiplayer_room()
+            return
         if save_name is None:
             self._show_save_slots_modal()
             return
@@ -54,6 +57,9 @@ class PersistenceMixin:
 
     def _handle_load_game(self, save_name: str = None):
         """处理加载游戏。无存档名时打开存档列表。"""
+        if self.multiplayer_room_id:
+            self._notify("多人对局中不能读取本地存档；可在多人联机中恢复已保存的房间。")
+            return
         if save_name is None:
             self._show_load_saves_modal()
             return
