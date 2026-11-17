@@ -18,34 +18,32 @@ class CombatSystem:
         if not attacking_units or not defending_units:
             return attacking_units, defending_units
         
-        # 只有士兵可以参与战斗
+        # 只有士兵可以参与战斗；无士兵保护的移民会被消灭
         attacking_soldiers = [u for u in attacking_units if u.unit_type == UnitType.SOLDIER]
         defending_soldiers = [u for u in defending_units if u.unit_type == UnitType.SOLDIER]
         
-        if not attacking_soldiers or not defending_soldiers:
+        if not attacking_soldiers:
             return attacking_units, defending_units
+        if not defending_soldiers:
+            for unit in defending_units:
+                self._remove_unit_from_tile(unit, position, map_tiles)
+            return attacking_units, []
         
         attack_strength = sum(unit.quantity for unit in attacking_soldiers)
         defense_strength = sum(unit.quantity for unit in defending_soldiers)
         
-        # 简单的数量对比战斗
+        # 简单的数量对比战斗；失败方地块上的全部单位被消灭
         if attack_strength > defense_strength:
-            survivors_count = attack_strength - defense_strength
             survivor = attacking_soldiers[0]
-            survivor.quantity = survivors_count
-            for unit in defending_soldiers:
-                self._remove_unit_from_tile(unit, position, map_tiles)
-            for unit in attacking_soldiers[1:]:
+            survivor.quantity = attack_strength - defense_strength
+            for unit in defending_units + attacking_soldiers[1:]:
                 self._remove_unit_from_tile(unit, position, map_tiles)
             return [survivor] + [u for u in attacking_units if u.unit_type != UnitType.SOLDIER], []
             
         elif defense_strength > attack_strength:
-            survivors_count = defense_strength - attack_strength
             survivor = defending_soldiers[0]
-            survivor.quantity = survivors_count
-            for unit in attacking_soldiers:
-                self._remove_unit_from_tile(unit, position, map_tiles)
-            for unit in defending_soldiers[1:]:
+            survivor.quantity = defense_strength - attack_strength
+            for unit in attacking_units + defending_soldiers[1:]:
                 self._remove_unit_from_tile(unit, position, map_tiles)
             return [], [survivor] + [u for u in defending_units if u.unit_type != UnitType.SOLDIER]
             

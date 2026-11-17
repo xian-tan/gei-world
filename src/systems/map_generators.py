@@ -14,8 +14,7 @@ class PerlinNoiseMapGenerator:
     def __init__(self, radius: int, ocean_ratio: float = 0.7, seed: int = None):
         self.radius = radius
         self.ocean_ratio = ocean_ratio
-        if seed is not None:
-            random.seed(seed)
+        self.rng = random.Random(seed)
     
     def generate(self) -> Dict[HexCoord, Tile]:
         """生成地图"""
@@ -31,12 +30,12 @@ class PerlinNoiseMapGenerator:
             normalized_distance = distance_from_center / self.radius
             
             # 添加随机噪声
-            noise = random.random() * 0.5
+            noise = self.rng.random() * 0.5
             
             # 计算海洋概率
             ocean_probability = self.ocean_ratio + normalized_distance * 0.3 + noise * 0.2
             
-            terrain = TerrainType.OCEAN if random.random() < ocean_probability else TerrainType.LAND
+            terrain = TerrainType.OCEAN if self.rng.random() < ocean_probability else TerrainType.LAND
             tiles[coord] = Tile(coord=coord, terrain_type=terrain)
         
         # 确保有足够的连通陆地
@@ -76,8 +75,7 @@ class IslandMapGenerator:
     def __init__(self, radius: int, island_count: int = 3, seed: int = None):
         self.radius = radius
         self.island_count = island_count
-        if seed is not None:
-            random.seed(seed)
+        self.rng = random.Random(seed)
     
     def generate(self) -> Dict[HexCoord, Tile]:
         """生成岛屿地图"""
@@ -113,7 +111,7 @@ class IslandMapGenerator:
         
         for _ in range(self.island_count):
             if available_coords:
-                center = random.choice(available_coords)
+                center = self.rng.choice(available_coords)
                 centers.append(center)
                 
                 # 移除周围区域的坐标，避免岛屿太近
@@ -126,7 +124,7 @@ class IslandMapGenerator:
     
     def _generate_island(self, tiles: Dict[HexCoord, Tile], center: HexCoord):
         """生成单个岛屿"""
-        island_size = random.randint(3, 7)
+        island_size = self.rng.randint(3, 7)
         
         # 从中心开始扩展
         for coord, tile in tiles.items():
@@ -136,6 +134,6 @@ class IslandMapGenerator:
             if distance == 0:
                 tile.terrain_type = TerrainType.LAND
             elif distance <= island_size:
-                land_probability = max(0, 1.0 - (distance / island_size) + random.random() * 0.3)
-                if random.random() < land_probability:
+                land_probability = max(0, 1.0 - (distance / island_size) + self.rng.random() * 0.3)
+                if self.rng.random() < land_probability:
                     tile.terrain_type = TerrainType.LAND

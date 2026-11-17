@@ -256,6 +256,8 @@ class HTTPNetworkSession:
         return response
 
     def _set_view_cache(self, view: Optional[Dict[str, object]]):
+        if view is not None and view == self._view_cache:
+            return
         self._view_cache = view
         self._engine_mirror = None
 

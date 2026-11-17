@@ -38,6 +38,13 @@ class RenderSystem:
         self.selected_city_economic_tiles: Set[HexCoord] = set()
         self.path_preview: List[HexCoord] = []
         self.minimap_rect: Optional[pygame.Rect] = None
+        self._fonts: Dict[int, pygame.font.Font] = {}
+    
+    def _font(self, size: int) -> pygame.font.Font:
+        """缓存字体对象，避免每帧重复创建。"""
+        if size not in self._fonts:
+            self._fonts[size] = pygame.font.Font(None, size)
+        return self._fonts[size]
         
     def set_selected_unit(self, unit_id: str):
         """设置选中的单位ID"""
@@ -280,8 +287,7 @@ class RenderSystem:
                 pygame.draw.polygon(surface, COLORS['WHITE'], points, 2)
             pygame.draw.polygon(surface, COLORS['BLACK'], points, 1)
             if count > 1:
-                font = pygame.font.Font(None, 15)
-                text = font.render(str(count), True, COLORS['WHITE'])
+                text = self._font(15).render(str(count), True, COLORS['WHITE'])
                 surface.blit(text, text.get_rect(center=center))
             return
         
@@ -290,8 +296,7 @@ class RenderSystem:
             pygame.draw.circle(surface, COLORS['WHITE'], center, unit_size + 2, 2)
         pygame.draw.circle(surface, COLORS['BLACK'], center, unit_size, 1)
         if count > 1:
-            font = pygame.font.Font(None, 16)
-            text = font.render(str(count), True, COLORS['WHITE'])
+            text = self._font(16).render(str(count), True, COLORS['WHITE'])
             surface.blit(text, text.get_rect(center=center))
     
     def _get_player_color(self, player: Player) -> Tuple[int, int, int]:

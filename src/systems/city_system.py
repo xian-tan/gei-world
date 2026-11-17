@@ -78,27 +78,19 @@ class CitySystem:
     
     def _get_initial_territory(self, center: HexCoord, map_tiles: dict) -> Set[HexCoord]:
         """获取城市初始领土"""
-        territory = set()
         radius = CITY_CONFIG["initial_territory_radius"]
-        
-        # 获取中心点及周围指定半径内的所有地块
-        for coord, tile in map_tiles.items():
-            if center.distance_to(coord) <= radius:
-                # 只占领陆地
-                if tile.terrain_type.value == "land":
-                    territory.add(coord)
-        
-        return territory
+        return {
+            coord for coord in center.within(radius)
+            if coord in map_tiles and map_tiles[coord].terrain_type.value == "land"
+        }
     
     def get_city_economic_tiles(self, city: City, map_tiles: dict, land_only: bool = False) -> Set[HexCoord]:
         """获取城市经济范围内的地块。"""
-        economic_tiles = set()
         radius = CITY_CONFIG["economic_radius"]
-        for coord, tile in map_tiles.items():
-            if city.center_tile.distance_to(coord) <= radius:
-                if not land_only or tile.terrain_type.value == "land":
-                    economic_tiles.add(coord)
-        return economic_tiles
+        return {
+            coord for coord in city.center_tile.within(radius)
+            if coord in map_tiles and (not land_only or map_tiles[coord].terrain_type.value == "land")
+        }
     
     def get_city_by_id(self, city_id: str) -> Optional[City]:
         """根据ID获取城市"""
@@ -106,14 +98,6 @@ class CitySystem:
             if city.id == city_id:
                 return city
         return None
-    
-    def get_player_cities(self, player: Player) -> List[City]:
-        """获取玩家的所有城市"""
-        return [city for city in self.cities if city.owner == player]
-    
-    def add_to_production_queue(self, city: City, unit_type: UnitType):
-        """向生产队列添加单位"""
-        city.production_queue.append(unit_type)
     
     def can_build_unit(self, city: City, unit_type: UnitType, quantity: int = 1) -> bool:
         """检查是否可以建造单位"""
@@ -160,24 +144,3 @@ class CitySystem:
         elif unit_type == UnitType.SOLDIER:
             return UNIT_CONFIG["soldier_cost"]
         return 0
-    
-    def remove_city(self, city: City, map_tiles: dict):
-        """移除城市"""
-        # 清除地块所有者
-        for tile_coord in city.territory_tiles:
-            tile = map_tiles.get(tile_coord)
-            if tile and tile.owner == city.owner:
-                tile.owner = None
-        
-        # 清除城市中心
-        center_tile = map_tiles.get(city.center_tile)
-        if center_tile:
-            center_tile.city = None
-        
-        # 从城市列表中移除
-        if city in self.cities:
-            self.cities.remove(city)
-        
-        # 从玩家城市列表中移除
-        if city in city.owner.cities:
-            city.owner.cities.remove(city)

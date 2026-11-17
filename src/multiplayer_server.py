@@ -3,6 +3,8 @@
 
 该模块只提供进程内房间/席位/权威 GameEngine 管理，不负责 socket 或 HTTP 传输。
 """
+import functools
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Union
 
@@ -49,6 +51,15 @@ class MultiplayerRoom:
         return None
 
 
+def _locked(method):
+    """串行化服务端公开方法，避免 ThreadingHTTPServer 并发请求造成竞态。"""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 class MultiplayerServer:
     """服务端权威房间管理原型。"""
 
@@ -56,7 +67,9 @@ class MultiplayerServer:
         self.rooms: Dict[str, MultiplayerRoom] = {}
         self._next_room_index = 1
         self._next_client_index = 1
+        self._lock = threading.RLock()
 
+    @_locked
     def create_room(self, host_name: str, max_players: int = 2,
                     turn_mode: str = TurnSystem.MODE_SIMULTANEOUS,
                     map_seed: int = None) -> Dict[str, object]:
@@ -82,6 +95,7 @@ class MultiplayerServer:
             "client_id": client_id
         }
 
+    @_locked
     def join_room(self, room_id: str, player_name: str) -> Dict[str, object]:
         """加入未开始的房间。"""
         room = self._get_room(room_id)
@@ -102,6 +116,7 @@ class MultiplayerServer:
             "client_id": client_id
         }
 
+    @_locked
     def start_room(self, room_id: str, map_seed: int = None,
                    turn_mode: str = None) -> Dict[str, object]:
         """启动房间，创建服务端唯一权威 GameEngine。"""
@@ -137,6 +152,7 @@ class MultiplayerServer:
             }
         }
 
+    @_locked
     def submit_action(self, room_id: str, client_id: str,
                       action_data: Union[Dict[str, object], GameAction]) -> Dict[str, object]:
         """提交行动到房间权威引擎，并返回行动结果与玩家安全视图。"""
@@ -163,6 +179,7 @@ class MultiplayerServer:
         self._record_action_events(room, seat, result)
         return self._action_response(room, seat, result)
 
+    @_locked
     def get_player_view(self, room_id: str, client_id: str) -> Dict[str, object]:
         """获取指定客户端对应玩家的安全视图。"""
         room = self._get_room(room_id)
@@ -187,18 +204,22 @@ class MultiplayerServer:
             "view": serialize_player_view(room.engine, seat.player_id)
         }
 
+    @_locked
     def get_room_state(self, room_id: str) -> Dict[str, object]:
         """获取房间状态。"""
         return serialize_room_state(self._get_room(room_id))
 
+    @_locked
     def get_room_engine(self, room_id: str) -> Optional[GameEngine]:
         """获取房间权威引擎，供进程内 NetworkSession 镜像使用。"""
         return self._get_room(room_id).engine
 
+    @_locked
     def get_client_player_id(self, room_id: str, client_id: str) -> Optional[str]:
         """获取客户端绑定的玩家 ID。"""
         return self._require_seat(self._get_room(room_id), client_id).player_id
 
+    @_locked
     def leave_room(self, room_id: str, client_id: str) -> Dict[str, object]:
         """标记客户端离开房间；房主离开会关闭房间。"""
         room = self._get_room(room_id)
@@ -219,6 +240,7 @@ class MultiplayerServer:
             self._record_system_event(room, seat, room.close_reason, "room_closed")
         return {"success": True, "room": serialize_room_state(room)}
 
+    @_locked
     def reconnect_room(self, room_id: str, client_id: str) -> Dict[str, object]:
         """标记客户端重新连接房间。"""
         room = self._get_room(room_id)

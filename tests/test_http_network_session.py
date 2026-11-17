@@ -94,3 +94,72 @@ def test_http_network_session_submits_actions_and_updates_cache():
     finally:
         http_server.shutdown()
         http_server.server_close()
+
+
+def test_http_network_session_reuses_mirror_when_view_unchanged():
+    http_server, host_session, guest_session = _start_http_sessions()
+    try:
+        first_mirror = host_session.engine
+        host_session.get_player_view()
+        assert host_session.engine is first_mirror
+    finally:
+        http_server.shutdown()
+        http_server.server_close()
+
+
+def test_ui_throttles_http_multiplayer_status_polling():
+    import pygame
+    from ui.client_controller import UIClient
+
+    http_server = create_http_server("127.0.0.1", 0)
+    Thread(target=http_server.serve_forever, daemon=True).start()
+    host, port = http_server.server_address
+    try:
+        pygame.init()
+        client = UIClient()
+        assert client._start_http_multiplayer(base_url=f"http://{host}:{port}", turn_mode="simultaneous", map_seed=123)
+        calls = []
+        original = client.session.http_client._request
+
+        def counting_request(*args, **kwargs):
+            calls.append(args)
+            return original(*args, **kwargs)
+
+        client.session.http_client._request = counting_request
+        client.multiplayer_poll_interval = 60
+        for _ in range(10):
+            client._get_game_state()
+        assert len(calls) <= 2
+    finally:
+        http_server.shutdown()
+        http_server.server_close()
+
+
+def test_multiplayer_server_serializes_concurrent_actions():
+    from src.multiplayer_server import MultiplayerServer
+    from src.network_protocol import serialize_action
+
+    server = MultiplayerServer()
+    created = server.create_room("玩家1", map_seed=123)
+    room_id = created["room"]["room_id"]
+    host_client = created["client_id"]
+    guest_client = server.join_room(room_id, "玩家2")["client_id"]
+    assert server.start_room(room_id)["success"]
+
+    results = []
+
+    def end_turn(client_id, player_id):
+        results.append(server.submit_action(room_id, client_id, serialize_action(GameAction(
+            player_id=player_id, action_type=ActionType.END_TURN, params={}
+        )))["success"])
+
+    threads = [
+        Thread(target=end_turn, args=(host_client, "player_0")),
+        Thread(target=end_turn, args=(guest_client, "player_1")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert results == [True, True]
+    assert server.get_room_engine(room_id).turn_system.current_turn == 2

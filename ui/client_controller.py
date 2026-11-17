@@ -4,6 +4,7 @@ UI客户端控制器 - UI与GameEngine的桥接
 import pygame
 import sys
 import os
+import time
 from typing import Dict, Any, Optional, Set
 
 # 添加项目根目录到路径
@@ -59,6 +60,9 @@ class UIClient:
         self.active_multiplayer_client_id = None
         self.notified_multiplayer_event_sequences = set()
         self.last_http_room_info = {}
+        self.multiplayer_poll_interval = 0.5
+        self._multiplayer_status_cache = None
+        self._multiplayer_status_time = 0.0
         
         # 设置输入回调
         self._setup_input_callbacks()
@@ -85,6 +89,7 @@ class UIClient:
         self.multiplayer_sessions = {}
         self.active_multiplayer_client_id = None
         self.notified_multiplayer_event_sequences = set()
+        self._invalidate_multiplayer_status()
     
     def _setup_input_callbacks(self):
         """设置输入系统回调"""
@@ -137,6 +142,7 @@ class UIClient:
     def _execute_action_and_notify(self, action: GameAction):
         """执行行动并显示引擎返回的结构化结果。"""
         result = self.session.submit_action(action)
+        self._invalidate_multiplayer_status()
         self._notify_action_result(result)
         return result
     
@@ -403,6 +409,7 @@ class UIClient:
             return False
         self.session = session
         self.active_multiplayer_client_id = client_id
+        self._invalidate_multiplayer_status()
         self.local_player_id = session.player_id
         self._clear_ui_selection_state()
         if notify:
@@ -867,10 +874,28 @@ class UIClient:
             elif event_type == "player_reconnected" and not is_self_event:
                 self._notify(f"{player_name} 已重新连接。")
     
+    def _invalidate_multiplayer_status(self):
+        """使多人状态缓存失效，下一帧立即刷新。"""
+        self._multiplayer_status_cache = None
+        self._multiplayer_status_time = 0.0
+    
     def _get_multiplayer_status(self) -> Optional[Dict[str, Any]]:
-        """获取多人房间状态摘要。"""
+        """获取多人房间状态摘要；HTTP 会话按 multiplayer_poll_interval 节流。"""
         if not self.multiplayer_room_id:
             return None
+        is_remote = not self.multiplayer_server and hasattr(self.session, 'http_client')
+        now = time.monotonic()
+        if (is_remote and self._multiplayer_status_cache is not None
+                and now - self._multiplayer_status_time < self.multiplayer_poll_interval):
+            return self._multiplayer_status_cache
+        status = self._fetch_multiplayer_status()
+        if is_remote:
+            self._multiplayer_status_cache = status
+            self._multiplayer_status_time = now
+        return status
+    
+    def _fetch_multiplayer_status(self) -> Optional[Dict[str, Any]]:
+        """拉取多人房间状态。"""
         active_player_id = self.session.player_id if hasattr(self.session, 'player_id') else self.local_player_id
         view_response = None
         if self.multiplayer_server:

@@ -9,7 +9,6 @@ from src.game_engine import GameEngine
 from src.models import HexCoord, TerrainType, UnitType
 from src.systems.ai_system import AIManager, SimpleAI, AggressiveAI
 from src.systems.save_system import GameSaveSystem
-from src.utils import get_player_statistics
 
 
 def test_ai_system():
@@ -56,10 +55,6 @@ def test_ai_system():
             else:
                 print("  -> 无行动")
         
-        # 显示状态
-        for player in engine.player_system.players:
-            stats = get_player_statistics(player)
-            print(f"  {stats['name']}: 💰{stats['gold']} 🏙️{stats['cities']} 👥{len(player.units)}")
     
     print("✓ AI系统测试完成")
 

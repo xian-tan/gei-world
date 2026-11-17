@@ -18,6 +18,7 @@ PLAYER_CONFIG = {
 
 # 单位配置
 UNIT_CONFIG = {
+    "settler_movement": 1,  # 移民移动力
     "soldier_movement": 2,  # 士兵移动力
     "soldier_vision": 2,    # 士兵视野
     "settler_vision": 1,    # 移民视野

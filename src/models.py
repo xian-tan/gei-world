@@ -51,6 +51,14 @@ class HexCoord:
         return (abs(self.q - other.q) + 
                 abs(self.q + self.r - other.q - other.r) + 
                 abs(self.r - other.r)) // 2
+    
+    def within(self, radius: int) -> List['HexCoord']:
+        """返回距离不超过 radius 的所有坐标（含自身）。"""
+        coords = []
+        for dq in range(-radius, radius + 1):
+            for dr in range(max(-radius, -dq - radius), min(radius, -dq + radius) + 1):
+                coords.append(HexCoord(self.q + dq, self.r + dr))
+        return coords
 
 
 @dataclass
@@ -92,13 +100,10 @@ class City:
     owner: 'Player'
     center_tile: HexCoord
     territory_tiles: Set[HexCoord]
-    production_queue: List[UnitType] = None
     
     def __post_init__(self):
         if not self.id:
             self.id = str(uuid.uuid4())
-        if self.production_queue is None:
-            self.production_queue = []
         if not self.territory_tiles:
             self.territory_tiles = set()
 

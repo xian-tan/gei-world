@@ -36,13 +36,15 @@ class GameEngine:
         self.map_tiles = {}
         self.ai_player_configs = {}
         self._last_failure_reason = ""
+        self.rng = random.Random()
     
     def initialize_game(self, player_names: List[str], map_seed: int = None, turn_mode: str = None) -> bool:
         """初始化游戏"""
         if len(player_names) < 2 or len(player_names) > PLAYER_CONFIG["max_players"]:
             return False
         
-        # 生成地图
+        # 生成地图；出生点使用与地图种子绑定的独立随机源
+        self.rng = random.Random(map_seed)
         self.map_tiles = self.map_system.generate_map(map_seed)
         
         # 创建玩家
@@ -81,7 +83,8 @@ class GameEngine:
             tile for tile in self.map_tiles.values()
             if tile.terrain_type == TerrainType.LAND and not tile.units and not tile.city
         ]
-        random.shuffle(land_tiles)
+        land_tiles.sort(key=lambda tile: (tile.coord.q, tile.coord.r))
+        self.rng.shuffle(land_tiles)
         
         preferred_distance = max(2, self.map_system.radius // 2)
         for min_distance in range(preferred_distance, 0, -1):

@@ -176,8 +176,7 @@ class GameSaveSystem:
         return {
             "id": city.id,
             "center": f"{city.center_tile.q},{city.center_tile.r}",
-            "territory": [f"{coord.q},{coord.r}" for coord in city.territory_tiles],
-            "production_queue": [unit_type.value for unit_type in city.production_queue]
+            "territory": [f"{coord.q},{coord.r}" for coord in city.territory_tiles]
         }
     
     def _serialize_unit(self, unit: Unit) -> Dict[str, Any]:
@@ -249,11 +248,7 @@ class GameSaveSystem:
                         id=city_data["id"],
                         owner=owner,
                         center_tile=center,
-                        territory_tiles=territory,
-                        production_queue=[
-                            UnitType(unit_type)
-                            for unit_type in city_data.get("production_queue", [])
-                        ]
+                        territory_tiles=territory
                     )
                     owner.cities.append(city)
                     engine.city_system.cities.append(city)
