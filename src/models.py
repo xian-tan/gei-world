@@ -100,6 +100,8 @@ class City:
     owner: 'Player'
     center_tile: HexCoord
     territory_tiles: Set[HexCoord]
+    defense: int = 0
+    productions_this_turn: int = 0
     
     def __post_init__(self):
         if not self.id:

@@ -11,6 +11,7 @@ from pathlib import Path
 from .. import __version__
 from ..models import GameState, Player, HexCoord, Tile, Unit, City, TerrainType, UnitType
 from ..game_engine import GameEngine
+from ..config import CITY_CONFIG
 
 
 class GameSaveSystem:
@@ -176,7 +177,9 @@ class GameSaveSystem:
         return {
             "id": city.id,
             "center": f"{city.center_tile.q},{city.center_tile.r}",
-            "territory": [f"{coord.q},{coord.r}" for coord in city.territory_tiles]
+            "territory": [f"{coord.q},{coord.r}" for coord in city.territory_tiles],
+            "defense": city.defense,
+            "productions_this_turn": city.productions_this_turn
         }
     
     def _serialize_unit(self, unit: Unit) -> Dict[str, Any]:
@@ -248,7 +251,9 @@ class GameSaveSystem:
                         id=city_data["id"],
                         owner=owner,
                         center_tile=center,
-                        territory_tiles=territory
+                        territory_tiles=territory,
+                        defense=city_data.get("defense", CITY_CONFIG["base_defense"]),
+                        productions_this_turn=city_data.get("productions_this_turn", 0)
                     )
                     owner.cities.append(city)
                     engine.city_system.cities.append(city)

@@ -5,6 +5,7 @@ import random
 
 from src.game_engine import GameEngine
 from src.models import ActionType, GameAction, HexCoord, TerrainType, UnitType
+from tests.helpers import anchor_player
 
 
 def _clear_board(engine):
@@ -27,6 +28,8 @@ def _engine():
     engine = GameEngine()
     assert engine.initialize_game(["玩家1", "玩家2"], map_seed=123)
     _clear_board(engine)
+    for player in engine.player_system.players:
+        anchor_player(engine, player)
     return engine
 
 
@@ -35,7 +38,6 @@ def test_soldier_destroys_unguarded_enemy_settler():
     attacker, defender = engine.player_system.players
     soldier = _place(engine, attacker, UnitType.SOLDIER, HexCoord(0, 0))
     settler = _place(engine, defender, UnitType.SETTLER, HexCoord(1, 0))
-    _place(engine, defender, UnitType.SOLDIER, HexCoord(-5, 5))
 
     result = engine.execute_action_with_result(GameAction(
         attacker.id, ActionType.MOVE_UNIT, {"unit_id": soldier.id, "target": [1, 0]}
@@ -52,7 +54,6 @@ def test_defeated_stack_removes_settlers_on_same_tile():
     soldier = _place(engine, attacker, UnitType.SOLDIER, HexCoord(0, 0), quantity=5)
     settler = _place(engine, defender, UnitType.SETTLER, HexCoord(1, 0))
     _place(engine, defender, UnitType.SOLDIER, HexCoord(1, 0), quantity=2)
-    _place(engine, defender, UnitType.SOLDIER, HexCoord(-5, 5))
 
     assert engine.execute_action(GameAction(
         attacker.id, ActionType.MOVE_UNIT, {"unit_id": soldier.id, "target": [1, 0], "move_quantity": 5}

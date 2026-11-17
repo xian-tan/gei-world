@@ -54,29 +54,31 @@ class CombatSystem:
                    [u for u in defending_units if u.unit_type != UnitType.SOLDIER])
     
     def attack_city(self, attacking_units: List[Unit], city, map_tiles: dict) -> bool:
-        """攻击城市"""
+        """攻城：兵力大于城市防御时城市易主，否则进攻方全灭并削减城市防御。"""
         attacking_soldiers = [u for u in attacking_units if u.unit_type == UnitType.SOLDIER]
         if not attacking_soldiers:
             return False
         
         attack_strength = sum(unit.quantity for unit in attacking_soldiers)
-        defense_value = CITY_CONFIG["defense_value"]
+        defense_value = city.defense
         
-        if attack_strength >= defense_value:
+        if attack_strength > defense_value:
             old_owner = city.owner
             new_owner = attacking_soldiers[0].owner
             self._transfer_city_ownership(city, old_owner, new_owner, map_tiles)
+            city.defense = CITY_CONFIG["captured_defense"]
+            city.productions_this_turn = CITY_CONFIG["productions_per_turn"]
             
-            survivors_count = max(1, attack_strength - defense_value)
             survivor = attacking_soldiers[0]
-            survivor.quantity = survivors_count
+            survivor.quantity = attack_strength - defense_value
             for unit in attacking_soldiers[1:]:
                 self._remove_unit_from_tile(unit, city.center_tile, map_tiles)
             return True
-        else:
-            for unit in attacking_soldiers:
-                self._remove_unit_from_tile(unit, city.center_tile, map_tiles)
-            return False
+        
+        city.defense = max(0, defense_value - attack_strength)
+        for unit in attacking_soldiers:
+            self._remove_unit_from_tile(unit, city.center_tile, map_tiles)
+        return False
     
     def check_for_combat(self, position: HexCoord, map_tiles: dict) -> bool:
         """检查指定位置是否需要战斗"""
@@ -129,7 +131,11 @@ class CombatSystem:
         if tile.owner == unit.owner:
             return False
         
-        return True
+        # 只能占领与己方领土相邻的地块，领土需要连片扩张
+        return any(
+            map_tiles.get(neighbor) is not None and map_tiles[neighbor].owner == unit.owner
+            for neighbor in target_position.neighbors()
+        )
     
     def occupy_tile(self, unit: Unit, target_position: HexCoord, map_tiles: dict) -> bool:
         """占领地块"""

@@ -12,7 +12,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.insert(0, project_root)
 
-from src.config import UNIT_CONFIG
+from src.config import UNIT_CONFIG, CITY_CONFIG
 from src.models import Player, City, Unit, UnitType
 from ui.ui_config import COLORS, FONT_SIZE_SMALL, FONT_SIZE_MEDIUM, FONT_SIZE_LARGE
 from ui.font_manager import get_font_manager
@@ -412,21 +412,28 @@ class UISystem:
         surface.blit(title, title_rect)
         y_offset += 40
         
-        # 生产选项
+        # 城市状态与生产选项
+        can_produce = city.productions_this_turn < CITY_CONFIG["productions_per_turn"]
+        status = f"防御 {city.defense}/{CITY_CONFIG['max_defense']}  ·  " + ("本回合可生产" if can_produce else "本回合已生产")
+        text = self.font_manager.render_text(status, 'small', COLORS['DARK_GRAY'])
+        surface.blit(text, (panel_x + 20, y_offset))
+        y_offset += 22
         text = self.font_manager.render_text("生产单位:", 'medium', COLORS['BLACK'])
         surface.blit(text, (panel_x + 20, y_offset))
-        y_offset += 30
+        y_offset += 26
+        produced_message = "该城市本回合已生产过，下回合再来。"
         
         # 移民按钮
         settler_cost = UNIT_CONFIG["settler_cost"]
         settler_text = f"移民 ({settler_cost}金币)"
-        settler_enabled = city.owner.gold >= settler_cost
+        settler_enabled = can_produce and city.owner.gold >= settler_cost
         settler_button = Button(
-            rect=pygame.Rect(panel_x + 20, y_offset, 120, 30),
+            rect=pygame.Rect(panel_x + 20, y_offset, 140, 30),
             text=settler_text,
             callback=lambda: self._build_unit(city, UnitType.SETTLER),
             enabled=settler_enabled,
-            disabled_message=f"金币不足：生产移民需要 {settler_cost} 金币，当前 {city.owner.gold}"
+            disabled_message=produced_message if not can_produce else
+            f"金币不足：生产移民需要 {settler_cost} 金币，当前 {city.owner.gold}"
         )
         self._draw_button(surface, settler_button)
         
@@ -456,13 +463,14 @@ class UISystem:
         y_offset += 24
         
         soldier_text = f"生产士兵 x{soldier_quantity} ({soldier_quantity * soldier_cost}金币)"
-        soldier_enabled = max_soldiers > 0
+        soldier_enabled = can_produce and max_soldiers > 0
         soldier_button = Button(
             rect=pygame.Rect(panel_x + 20, y_offset, 250, 30),
             text=soldier_text,
             callback=lambda: self._build_unit(city, UnitType.SOLDIER, soldier_quantity),
             enabled=soldier_enabled,
-            disabled_message=f"金币不足：生产士兵需要 {soldier_cost} 金币，当前 {city.owner.gold}"
+            disabled_message=produced_message if not can_produce else
+            f"金币不足：生产士兵需要 {soldier_cost} 金币，当前 {city.owner.gold}"
         )
         self._draw_button(surface, soldier_button)
         y_offset += 50

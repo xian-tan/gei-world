@@ -301,7 +301,9 @@ class HTTPNetworkSession:
                         id=city_data["id"],
                         owner=owner,
                         center_tile=parse_coord(city_data.get("center", [coord.q, coord.r])),
-                        territory_tiles=set()
+                        territory_tiles=set(),
+                        defense=city_data.get("defense", 0),
+                        productions_this_turn=city_data.get("productions_this_turn", 0)
                     )
                     tile.city = city
                     owner.cities.append(city)

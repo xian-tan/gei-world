@@ -101,6 +101,7 @@ def test_aggressive_ai_attacks_city_when_force_is_sufficient():
         engine.map_tiles[coord].terrain_type = TerrainType.LAND
     city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
     defender.cities.append(city)
+    city.defense = 1
 
     stationed_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, city_center)
     moving_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, stage)

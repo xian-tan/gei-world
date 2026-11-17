@@ -35,8 +35,8 @@ class PlayerSystem:
     def calculate_income(self, player: Player, map_tiles: dict = None) -> int:
         """计算玩家收入。
 
-        有地图数据时，只统计玩家已拥有、且落在任一己方城市经济范围内的陆地地块。
-        兼容旧调用时退回到城市初始领土去重统计。
+        收入 = 城市数 × 城市中心收入 + 任一己方城市经济范围内的己方陆地数 × 领土收入。
+        无地图数据时退回到城市初始领土去重统计。
         """
         if not player:
             return 0
@@ -53,7 +53,8 @@ class PlayerSystem:
             for city in player.cities:
                 income_tiles.update(city.territory_tiles)
 
-        return len(income_tiles) * ECONOMY_CONFIG["territory_income"]
+        return (len(player.cities) * ECONOMY_CONFIG["city_center_income"]
+                + len(income_tiles) * ECONOMY_CONFIG["territory_income"])
 
     def update_player_gold(self, player: Player, amount: int):
         """更新玩家金币"""

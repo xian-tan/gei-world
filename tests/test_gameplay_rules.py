@@ -8,6 +8,7 @@ from src.game_engine import GameEngine
 from src.models import ActionType, GameAction, UnitType, TerrainType, HexCoord
 from src.systems.save_system import GameSaveSystem
 from src.config import UNIT_CONFIG, CITY_CONFIG, ECONOMY_CONFIG
+from tests.helpers import anchor_player
 
 
 class TestGameplayRules(unittest.TestCase):
@@ -36,6 +37,8 @@ class TestGameplayRules(unittest.TestCase):
             engine.unit_system.remove_unit(unit, engine.map_tiles)
         for unit in list(defender.units):
             engine.unit_system.remove_unit(unit, engine.map_tiles)
+        anchor_player(engine, attacker)
+        anchor_player(engine, defender)
 
         start = HexCoord(0, 0)
         target = HexCoord(1, 0)
@@ -75,6 +78,8 @@ class TestGameplayRules(unittest.TestCase):
         for coord in [start, middle, target]:
             engine.map_tiles[coord].terrain_type = TerrainType.LAND
             engine.map_tiles[coord].owner = player2
+        engine.map_tiles[start].owner = player1
+        anchor_player(engine, player1)
 
         soldier = engine.unit_system.create_unit(UnitType.SOLDIER, player1, start)
         engine.map_tiles[start].units.append(soldier)
@@ -100,6 +105,7 @@ class TestGameplayRules(unittest.TestCase):
         player1 = engine.player_system.players[0]
         for unit in list(player1.units):
             engine.unit_system.remove_unit(unit, engine.map_tiles)
+        anchor_player(engine, player1)
 
         start = HexCoord(0, 0)
         blocker = HexCoord(1, 0)
@@ -124,7 +130,7 @@ class TestGameplayRules(unittest.TestCase):
         self.assertNotIn(blocker, path)
         self.assertEqual(len(path) - 1, 3)
 
-    def test_soldier_cost_is_one_and_can_build_with_one_gold(self):
+    def test_city_can_produce_once_per_turn_at_config_cost(self):
         engine = GameEngine()
         self.assertTrue(engine.initialize_game(["玩家1", "玩家2"], map_seed=123))
 
@@ -136,17 +142,26 @@ class TestGameplayRules(unittest.TestCase):
             params={"unit_id": settler.id}
         )))
         city = player.cities[0]
-        player.gold = 1
-        self.assertEqual(UNIT_CONFIG["soldier_cost"], 1)
+        cost = UNIT_CONFIG["soldier_cost"]
+        player.gold = cost * 3
 
         result = engine.execute_action_with_result(GameAction(
             player_id=player.id,
             action_type=ActionType.BUILD_UNIT,
-            params={"city_id": city.id, "unit_type": UnitType.SOLDIER.value}
+            params={"city_id": city.id, "unit_type": UnitType.SOLDIER.value, "quantity": 2}
         ))
         self.assertTrue(result.success)
-        self.assertEqual(player.gold, 0)
-        self.assertEqual(len([unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]), 1)
+        self.assertEqual(player.gold, cost)
+        soldiers = [unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]
+        self.assertEqual(sum(unit.quantity for unit in soldiers), 2)
+
+        second = engine.execute_action_with_result(GameAction(
+            player_id=player.id,
+            action_type=ActionType.BUILD_UNIT,
+            params={"city_id": city.id, "unit_type": UnitType.SOLDIER.value}
+        ))
+        self.assertFalse(second.success)
+        self.assertIn("本回合已生产", second.message)
 
     def test_batch_soldiers_can_capture_city_without_siege_state(self):
         engine = GameEngine()
@@ -164,6 +179,8 @@ class TestGameplayRules(unittest.TestCase):
 
         city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
         defender.cities.append(city)
+        city.defense = 1
+        anchor_player(engine, attacker)
         soldier_a = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, source)
         soldier_b = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, source)
         for soldier in [soldier_a, soldier_b]:
@@ -196,6 +213,7 @@ class TestGameplayRules(unittest.TestCase):
 
         city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
         defender.cities.append(city)
+        city.defense = 1
 
         city_tile = engine.map_tiles[city.center_tile]
         stationed_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, city.center_tile)
@@ -227,6 +245,7 @@ class TestGameplayRules(unittest.TestCase):
         player1 = engine.player_system.players[0]
         for unit in list(player1.units):
             engine.unit_system.remove_unit(unit, engine.map_tiles)
+        anchor_player(engine, player1)
 
         start = HexCoord(0, 0)
         ocean = HexCoord(1, 0)
@@ -257,6 +276,7 @@ class TestGameplayRules(unittest.TestCase):
         player1 = engine.player_system.players[0]
         for unit in list(player1.units):
             engine.unit_system.remove_unit(unit, engine.map_tiles)
+        anchor_player(engine, player1)
 
         start = HexCoord(0, 0)
         adjacent_ocean = HexCoord(1, 0)
@@ -290,6 +310,7 @@ class TestGameplayRules(unittest.TestCase):
         player1 = engine.player_system.players[0]
         for unit in list(player1.units):
             engine.unit_system.remove_unit(unit, engine.map_tiles)
+        anchor_player(engine, player1)
 
         start = HexCoord(0, 0)
         blocker = HexCoord(1, 0)
@@ -395,6 +416,7 @@ class TestGameplayRules(unittest.TestCase):
         player1, player2 = engine.player_system.players
         for unit in list(player1.units):
             engine.unit_system.remove_unit(unit, engine.map_tiles)
+        anchor_player(engine, player1)
 
         position = HexCoord(0, 0)
         engine.map_tiles[position].terrain_type = TerrainType.LAND
@@ -423,8 +445,10 @@ class TestGameplayRules(unittest.TestCase):
             for unit in list(player.units):
                 engine.unit_system.remove_unit(unit, engine.map_tiles)
 
+        anchor_player(engine, player2)
         center = HexCoord(0, 0)
         inside_economy = HexCoord(CITY_CONFIG["economic_radius"], 0)
+        engine.map_tiles[HexCoord(1, 0)].terrain_type = TerrainType.LAND
         outside_initial = center.distance_to(inside_economy) > CITY_CONFIG["initial_territory_radius"]
         self.assertTrue(outside_initial)
         for coord in [center, inside_economy]:
@@ -439,9 +463,10 @@ class TestGameplayRules(unittest.TestCase):
             and engine.map_tiles[coord].terrain_type == TerrainType.LAND
         }
         self.assertNotIn(inside_economy, city.territory_tiles)
+        center_income = ECONOMY_CONFIG["city_center_income"]
         self.assertEqual(
             engine.player_system.calculate_income(player1, engine.map_tiles),
-            len(base_income_tiles) * ECONOMY_CONFIG["territory_income"]
+            center_income + len(base_income_tiles) * ECONOMY_CONFIG["territory_income"]
         )
 
         soldier = engine.unit_system.create_unit(UnitType.SOLDIER, player1, inside_economy)
@@ -450,7 +475,7 @@ class TestGameplayRules(unittest.TestCase):
         self.assertTrue(engine.combat_system.occupy_tile(soldier, inside_economy, engine.map_tiles))
         self.assertEqual(
             engine.player_system.calculate_income(player1, engine.map_tiles),
-            (len(base_income_tiles) + 1) * ECONOMY_CONFIG["territory_income"]
+            center_income + (len(base_income_tiles) + 1) * ECONOMY_CONFIG["territory_income"]
         )
 
     def test_city_capture_can_end_game_immediately(self):
@@ -464,6 +489,7 @@ class TestGameplayRules(unittest.TestCase):
 
         city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
         defender.cities.append(city)
+        city.defense = 1
 
         city_tile = engine.map_tiles[city.center_tile]
         stationed_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, city.center_tile)
@@ -540,6 +566,7 @@ class TestGameplayRules(unittest.TestCase):
 
         city = engine.city_system.create_city(defender, city_center, engine.map_tiles)
         defender.cities.append(city)
+        city.defense = 1
 
         city_tile = engine.map_tiles[city.center_tile]
         stationed_soldier = engine.unit_system.create_unit(UnitType.SOLDIER, attacker, city.center_tile)

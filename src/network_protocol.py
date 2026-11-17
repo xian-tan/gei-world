@@ -137,7 +137,9 @@ def _serialize_tile(tile: Tile, visible: bool, explored: bool) -> Dict[str, Any]
         data["city"] = {
             "id": tile.city.id,
             "owner_id": tile.city.owner.id,
-            "center": coord_to_list(tile.city.center_tile)
+            "center": coord_to_list(tile.city.center_tile),
+            "defense": tile.city.defense,
+            "productions_this_turn": tile.city.productions_this_turn
         }
     if visible:
         data["units"] = [_serialize_unit(unit) for unit in tile.units]

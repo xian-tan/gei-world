@@ -12,8 +12,8 @@ from .systems.unit_system import UnitSystem
 from .systems.city_system import CitySystem
 from .systems.combat_system import CombatSystem
 from .systems.vision_system import VisionSystem
-from .systems.turn_system import TurnSystem
-from .config import PLAYER_CONFIG
+from .systems.turn_system import TurnSystem, is_player_alive
+from .config import PLAYER_CONFIG, GAME_CONFIG
 
 
 class GameEngine:
@@ -291,21 +291,31 @@ class GameEngine:
     
     def _execute_end_turn(self, action: GameAction) -> bool:
         """执行结束回合行动"""
-        transition = self.turn_system.end_turn(
-            self.player_system, 
-            self.unit_system, 
-            self.vision_system, 
-            self.map_tiles,
-            action.player_id
-        )
+        transition = self.turn_system.end_turn(action.player_id, self._on_new_turn)
         if not transition.get("success"):
             return self._fail(str(transition.get("reason", "结束回合失败")))
         action.params["_turn_transition"] = transition
-        
-        # 检查游戏是否结束
         self._check_game_over()
-        
         return True
+    
+    def _on_new_turn(self):
+        """新一整轮开始：收入、移动力、城市防御/生产次数、合并士兵栈、刷新视野。"""
+        for player in self.player_system.players:
+            income = self.player_system.calculate_income(player, self.map_tiles)
+            self.player_system.update_player_gold(player, income)
+            self.unit_system.restore_movement_points(player)
+            for city in player.cities:
+                self.city_system.start_turn(city)
+        self.unit_system.merge_compatible_stacks(self.map_tiles)
+        self._update_all_visions()
+    
+    def calculate_score(self, player: Player) -> int:
+        """回合上限判胜使用的分数。"""
+        territory = sum(1 for tile in self.map_tiles.values() if tile.owner == player)
+        soldiers = sum(unit.quantity for unit in player.units if unit.unit_type == UnitType.SOLDIER)
+        return (len(player.cities) * GAME_CONFIG["score_per_city"]
+                + territory * GAME_CONFIG["score_per_territory"]
+                + soldiers * GAME_CONFIG["score_per_soldier"])
     
     def _occupy_intermediate_path_tiles(self, unit, path: List[HexCoord]):
         """士兵沿路径占领中间普通地块，不处理终点战斗/攻城。"""
@@ -518,10 +528,32 @@ class GameEngine:
             self.vision_system.update_player_vision(player, self.map_tiles)
     
     def _check_game_over(self):
-        """统一检查并更新游戏结束状态。"""
+        """统一检查淘汰与游戏结束状态。"""
+        self._remove_defeated_players_units()
         if self.turn_system.is_game_over():
             self.game_over = True
             self.winner = self.turn_system.get_winner()
+            return
+        self.turn_system.advance_if_all_ended(self._on_new_turn)
+        if self.turn_system.current_turn > GAME_CONFIG["max_turns"]:
+            alive = self.turn_system.alive_players()
+            scores = sorted(((self.calculate_score(p), p) for p in alive), key=lambda item: item[0], reverse=True)
+            self.game_over = True
+            if len(scores) > 1 and scores[0][0] == scores[1][0]:
+                self.winner = None
+            else:
+                self.winner = scores[0][1] if scores else None
+    
+    def _remove_defeated_players_units(self):
+        """被淘汰（无城市且无移民）的玩家残余单位撤出地图。"""
+        removed = False
+        for player in self.player_system.players:
+            if player.units and not is_player_alive(player):
+                for unit in list(player.units):
+                    self.unit_system.remove_unit(unit, self.map_tiles)
+                removed = True
+        if removed:
+            self._update_all_visions()
     
     def get_current_player(self) -> Optional[Player]:
         """获取当前行动玩家"""

@@ -129,7 +129,9 @@ def test_ui_fixes():
         client.game_engine.unit_system.remove_unit(settler, client.game_engine.map_tiles)
         city = client.game_engine.city_system.create_city(player, settler.position, client.game_engine.map_tiles)
         player.cities.append(city)
-        assert client._get_game_state()['current_income'] == len(city.territory_tiles) * ECONOMY_CONFIG["territory_income"]
+        assert client._get_game_state()['current_income'] == (
+            ECONOMY_CONFIG["city_center_income"] + len(city.territory_tiles) * ECONOMY_CONFIG["territory_income"]
+        )
         client.ui_system.messages.clear()
         client._handle_normal_click(client.game_engine.map_tiles[city.center_tile], player)
         assert any("生产" in message and "金币" in message for message in client.ui_system.messages)
@@ -208,6 +210,8 @@ def test_path_preview_state_and_hover_path():
     player = client.game_engine.get_current_player()
     for unit in list(player.units):
         client.game_engine.unit_system.remove_unit(unit, client.game_engine.map_tiles)
+    from tests.helpers import anchor_player
+    anchor_player(client.game_engine, player)
     start = HexCoord(0, 0)
     middle = HexCoord(1, 0)
     target = HexCoord(2, 0)
@@ -331,7 +335,8 @@ def test_batch_soldier_production_and_movement():
     city = client.game_engine.city_system.create_city(player, settler.position, client.game_engine.map_tiles)
     player.cities.append(city)
     client.game_engine.unit_system.remove_unit(settler, client.game_engine.map_tiles)
-    player.gold = 5
+    from src.config import UNIT_CONFIG
+    player.gold = UNIT_CONFIG["soldier_cost"] * 3 + 2
     
     client._handle_build_unit(city.id, UnitType.SOLDIER, quantity=3)
     soldiers = [unit for unit in player.units if unit.unit_type == UnitType.SOLDIER]
@@ -363,6 +368,8 @@ def test_batch_soldier_production_and_movement():
     assert any("已移动 2 名士兵" in message for message in client.ui_system.messages)
     
     surface = pygame.Surface((800, 600))
+    player.gold = UNIT_CONFIG["soldier_cost"] * 4
+    city.productions_this_turn = 0
     client.ui_system.show_city_panel_for(city)
     client.ui_system.render(surface, {
         'current_player': player,
@@ -399,6 +406,8 @@ def test_split_soldier_stack_keeps_moved_stack_selected_and_saved():
     player = client.game_engine.get_current_player()
     for unit in list(player.units):
         client.game_engine.unit_system.remove_unit(unit, client.game_engine.map_tiles)
+    from tests.helpers import anchor_player
+    anchor_player(client.game_engine, player)
     start = HexCoord(0, 0)
     first_target = HexCoord(1, 0)
     second_target = HexCoord(2, 0)

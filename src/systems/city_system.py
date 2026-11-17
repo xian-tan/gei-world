@@ -24,7 +24,8 @@ class CitySystem:
             id="",  # 将在__post_init__中自动生成
             owner=owner,
             center_tile=center_tile,
-            territory_tiles=set()
+            territory_tiles=set(),
+            defense=CITY_CONFIG["base_defense"]
         )
         
         # 获得初始领土
@@ -106,7 +107,9 @@ class CitySystem:
     def get_build_unit_failure_reason(self, city: City, unit_type: UnitType, quantity: int = 1) -> Optional[str]:
         """获取生产失败原因；可生产时返回 None。"""
         quantity = 1 if unit_type == UnitType.SETTLER else max(1, quantity)
-        cost = self._get_unit_cost(unit_type) * quantity
+        if city.productions_this_turn >= CITY_CONFIG["productions_per_turn"]:
+            return "生产失败：该城市本回合已生产过，下回合再来"
+        cost = self.get_unit_cost(unit_type) * quantity
         if city.owner.gold < cost:
             return f"生产失败：金币不足，需要 {cost}，当前 {city.owner.gold}"
         return None
@@ -118,8 +121,9 @@ class CitySystem:
         if not self.can_build_unit(city, unit_type, quantity):
             return None
         
-        cost = self._get_unit_cost(unit_type) * quantity
+        cost = self.get_unit_cost(unit_type) * quantity
         city.owner.gold -= cost
+        city.productions_this_turn += 1
         center_tile = map_tiles.get(city.center_tile)
         
         if unit_type == UnitType.SOLDIER and center_tile:
@@ -137,10 +141,20 @@ class CitySystem:
         
         return unit
     
-    def _get_unit_cost(self, unit_type: UnitType) -> int:
+    @staticmethod
+    def get_unit_cost(unit_type: UnitType) -> int:
         """获取单位建造成本"""
         if unit_type == UnitType.SETTLER:
             return UNIT_CONFIG["settler_cost"]
         elif unit_type == UnitType.SOLDIER:
             return UNIT_CONFIG["soldier_cost"]
         return 0
+    
+    def start_turn(self, city: City):
+        """新一整轮开始：城市防御增长并重置生产次数。"""
+        city.defense = min(CITY_CONFIG["max_defense"], city.defense + CITY_CONFIG["defense_growth"])
+        city.productions_this_turn = 0
+    
+    def can_produce_this_turn(self, city: City) -> bool:
+        """城市本回合是否还能生产。"""
+        return city.productions_this_turn < CITY_CONFIG["productions_per_turn"]
