@@ -38,64 +38,34 @@ class GameEngine:
         self._last_failure_reason = ""
         self.rng = random.Random()
     
-    def initialize_game(self, player_names: List[str], map_seed: int = None, turn_mode: str = None) -> bool:
-        """初始化游戏"""
+    def initialize_game(self, player_names: List[str], map_seed: int = None, turn_mode: str = None,
+                        map_type: str = None, map_size: str = None) -> bool:
+        """初始化游戏。map_type: continents/pangaea/islands；map_size: small/medium/large。"""
         if len(player_names) < 2 or len(player_names) > PLAYER_CONFIG["max_players"]:
             return False
         
         # 生成地图；出生点使用与地图种子绑定的独立随机源
+        self.map_system.configure(map_type, map_size)
         self.rng = random.Random(map_seed)
         self.map_tiles = self.map_system.generate_map(map_seed)
         
-        # 创建玩家
-        players = []
-        for name in player_names:
-            player = self.player_system.create_player(name)
-            players.append(player)
-        
-        # 为每个玩家创建初始移民
-        spawn_tiles = self._select_spawn_tiles(len(players))
+        players = [self.player_system.create_player(name) for name in player_names]
+        spawn_tiles = self.map_system.select_spawn_tiles(len(players), self.rng)
         if len(spawn_tiles) < len(players):
             return False
         
         for player, spawn_tile in zip(players, spawn_tiles):
-            settler = self.unit_system.create_unit(
-                UnitType.SETTLER, player, spawn_tile.coord
-            )
+            settler = self.unit_system.create_unit(UnitType.SETTLER, player, spawn_tile.coord)
             spawn_tile.units.append(settler)
             player.units.append(settler)
-          # 初始化回合系统
+        
         self.turn_system.initialize(players, turn_mode)
-        
-        # 初始化视野系统的玩家列表
         self.vision_system.set_players(players)
-        
-        # 更新所有玩家视野
         for player in players:
             self.vision_system.update_player_vision(player, self.map_tiles)
         
         self.game_started = True
         return True
-    
-    def _select_spawn_tiles(self, player_count: int) -> List:
-        """选择不重叠且尽量分散的出生地块。"""
-        land_tiles = [
-            tile for tile in self.map_tiles.values()
-            if tile.terrain_type == TerrainType.LAND and not tile.units and not tile.city
-        ]
-        land_tiles.sort(key=lambda tile: (tile.coord.q, tile.coord.r))
-        self.rng.shuffle(land_tiles)
-        
-        preferred_distance = max(2, self.map_system.radius // 2)
-        for min_distance in range(preferred_distance, 0, -1):
-            selected = []
-            for tile in land_tiles:
-                if all(tile.coord.distance_to(existing.coord) >= min_distance for existing in selected):
-                    selected.append(tile)
-                    if len(selected) == player_count:
-                        return selected
-        
-        return land_tiles[:player_count]
     
     def execute_action(self, action: GameAction) -> bool:
         """执行游戏行动，保留 bool 返回用于兼容旧调用。"""

@@ -5,9 +5,10 @@
 
 # 地图配置
 MAP_CONFIG = {
-    "radius": 10,           # 地图半径
-    "ocean_ratio": 0.3,     # 海洋比例
-    "seed": None,           # 随机种子，None为随机
+    "radius": 10,             # 默认地图半径（medium）
+    "map_type": "continents", # 默认地图类型：continents / pangaea / islands
+    "ocean_ratio": None,      # 海洋比例，None 时使用地图类型默认值
+    "seed": None,             # 随机种子，None为随机
 }
 
 # 玩家配置
